@@ -1,0 +1,133 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "Logs",
+      "Effect": "Allow",
+      "Action": ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"],
+      "Resource": "arn:aws:logs:REGION:ACCOUNT_ID:*"
+    },
+    {
+      "Sid": "AgentCoreControl",
+      "Effect": "Allow",
+      "Action": [
+        "bedrock-agentcore:ListHarnesses",
+        "bedrock-agentcore:GetHarness",
+        "bedrock-agentcore:UpdateHarness",
+        "bedrock-agentcore:ListAgentRuntimes",
+        "bedrock-agentcore:InvokeHarness",
+        "bedrock-agentcore:InvokeAgentRuntime",
+        "bedrock-agentcore:InvokeAgentRuntimeCommand"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "EvalRead",
+      "Effect": "Allow",
+      "Action": [
+        "bedrock-agentcore:ListEvaluators",
+        "bedrock-agentcore:GetEvaluator",
+        "bedrock-agentcore:ListOnlineEvaluationConfigs",
+        "bedrock-agentcore:GetOnlineEvaluationConfig"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "BatchEval",
+      "Effect": "Allow",
+      "Action": [
+        "bedrock-agentcore:StartBatchEvaluation",
+        "bedrock-agentcore:GetBatchEvaluation",
+        "bedrock-agentcore:ListBatchEvaluations"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "NativeRecs",
+      "Effect": "Allow",
+      "Action": [
+        "bedrock-agentcore:StartRecommendation",
+        "bedrock-agentcore:GetRecommendation",
+        "bedrock-agentcore:ListRecommendations"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "CWMetricsRead",
+      "Effect": "Allow",
+      "Action": ["cloudwatch:GetMetricData", "cloudwatch:ListMetrics"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "AgentCoreLogsRead",
+      "Effect": "Allow",
+      "Action": [
+        "logs:DescribeLogStreams",
+        "logs:StartQuery",
+        "logs:GetQueryResults",
+        "logs:FilterLogEvents",
+        "logs:GetLogEvents"
+      ],
+      "Resource": [
+        "arn:aws:logs:REGION:ACCOUNT_ID:log-group:/aws/bedrock-agentcore*",
+        "arn:aws:logs:REGION:ACCOUNT_ID:log-group:/aws/bedrock-agentcore*:*",
+        "arn:aws:logs:REGION:ACCOUNT_ID:log-group:aws/spans",
+        "arn:aws:logs:REGION:ACCOUNT_ID:log-group:aws/spans:*"
+      ]
+    },
+    {
+      "Sid": "LogsDescribeAndFas",
+      "Effect": "Allow",
+      "Action": [
+        "logs:DescribeLogGroups",
+        "logs:PutRetentionPolicy",
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "Bedrock",
+      "Effect": "Allow",
+      "Action": ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "S3Reports",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:ListBucket"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "Secrets",
+      "Effect": "Allow",
+      "Action": ["secretsmanager:GetSecretValue"],
+      "Resource": "arn:aws:secretsmanager:REGION:ACCOUNT_ID:secret:*"
+    },
+    {
+      "Sid": "DDB",
+      "Effect": "Allow",
+      "Action": ["dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:GetItem", "dynamodb:Scan"],
+      "Resource": "arn:aws:dynamodb:REGION:ACCOUNT_ID:table/AgentAdminRuns"
+    },
+    {
+      "Sid": "SelfInvoke",
+      "Effect": "Allow",
+      "Action": ["lambda:InvokeFunction"],
+      "Resource": "arn:aws:lambda:REGION:ACCOUNT_ID:function:agent-cicd-admin"
+    },
+    {
+      "Sid": "CognitoAuth",
+      "Effect": "Allow",
+      "Action": ["cognito-idp:InitiateAuth", "cognito-idp:GetUser"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "STS",
+      "Effect": "Allow",
+      "Action": ["sts:GetCallerIdentity"],
+      "Resource": "*"
+    }
+  ]
+}
