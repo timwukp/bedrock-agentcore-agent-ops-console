@@ -23,15 +23,7 @@ server-side validation via `cognito-idp:GetUser`). Read-only views need no sign-
 
 ## Architecture
 
-```
-Browser ──▶ HTTP API Gateway ──▶ Lambda (one function: HTML + JSON API, vendored boto3)
-                                   ├─ bedrock-agentcore-control  (harnesses, runtimes, eval configs)
-                                   ├─ bedrock-agentcore          (batch evals, recommendations, invoke)
-                                   ├─ CloudWatch metrics + Logs Insights (observability, eval scores)
-                                   ├─ S3 (QA reports/screenshots) · GitHub API (runs/PRs)
-                                   ├─ DynamoDB (fan-out state, drafted recommendations)
-                                   └─ Cognito (admin auth)
-```
+![Architecture](docs/architecture.svg)
 
 Single Lambda, no build step, no framework — the dashboard HTML/JS/SVG lives inside
 `src/lambda_function.py` and is served on `GET /`. HTTP API Gateway is used instead of a Lambda
