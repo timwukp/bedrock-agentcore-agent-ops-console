@@ -1,0 +1,13 @@
+{
+  "app": "python3 app.py",
+  "context": {
+    "uiHarness": "",
+    "bugfixHarness": "",
+    "targetRepo": "",
+    "targetUrl": "",
+    "qaBucket": "",
+    "loginSecretId": "",
+    "skillRepoUrl": "",
+    "spansSince": ""
+  }
+}
