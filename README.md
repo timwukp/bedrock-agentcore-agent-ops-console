@@ -29,6 +29,11 @@ Single Lambda, no build step, no framework — the dashboard HTML/JS/SVG lives i
 `src/lambda_function.py` and is served on `GET /`. HTTP API Gateway is used instead of a Lambda
 Function URL because some org guardrails block public Function URLs.
 
+Data sources read by the Lambda: AgentCore control & data planes, CloudWatch (metrics, Logs
+Insights, eval scores, spans), S3 (QA reports & screenshots), DynamoDB, Bedrock, and the **GitHub
+REST API** (Actions workflow runs, open PRs, workflow jobs/steps, and branch commits — anonymous by
+default, `GITHUB_TOKEN` optional to lift rate limits).
+
 ## Deploy
 
 ```bash
