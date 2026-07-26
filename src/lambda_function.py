@@ -19,6 +19,7 @@ Env: AWS_REGION, ACCOUNT_ID (optional), TARGET_REPO, QA_BUCKET, UI_HARNESS, BUGF
 """
 import json
 import os
+import re
 import secrets
 import urllib.request
 import urllib.error
@@ -169,16 +170,33 @@ def get_harness_detail(hid):
             "maxIterations": h.get("maxIterations"), "timeoutSeconds": h.get("timeoutSeconds")}
 
 
+def _open_pr_numbers():
+    """PR numbers still open on the target repo. None (not empty set) on API failure so the
+    caller can tell 'GitHub unreachable' apart from 'no open PRs'."""
+    prs = _gh_get("pulls?state=open&per_page=50")
+    if not isinstance(prs, list):
+        return None
+    return {p.get("number") for p in prs}
+
+
 def latest_qa_run(prefix=None):
-    """Serve the NEWEST QA report. With no explicit prefix, scan top-level prefixes
-    (run-latest/, pr-<n>/, ...) and pick the one whose report was modified last —
-    PR-triggered runs keep landing in new pr-<n>/ prefixes, so hardcoding goes stale."""
+    """Serve the NEWEST *relevant* QA report. With no explicit prefix, scan top-level prefixes
+    (run-latest/, pr-<n>/, ...) and pick the one whose report was modified last — but skip
+    pr-<n>/ prefixes whose PR is no longer open: once a PR is approved+merged (or closed) its
+    findings are history, and the operator's focus belongs on PRs that still need attention.
+    Merged-PR reports stay in S3 and remain reachable via an explicit ?prefix=pr-<n>."""
     report, shots, updated = None, [], None
     if not prefix:
         best = None
+        open_prs = _open_pr_numbers()
         try:
             for cp in s3.list_objects_v2(Bucket=QA_BUCKET, Delimiter="/").get("CommonPrefixes", []):
                 cand = cp["Prefix"].rstrip("/")
+                m = re.fullmatch(r"pr-(\d+)", cand)
+                # Skip closed/merged PRs; if GitHub is unreachable (open_prs None), keep
+                # everything rather than blanking the panel on a rate-limit blip.
+                if m and open_prs is not None and int(m.group(1)) not in open_prs:
+                    continue
                 try:
                     h = s3.head_object(Bucket=QA_BUCKET, Key=f"{cand}/test-report-latest.json")
                     if best is None or h["LastModified"] > best[1]:
