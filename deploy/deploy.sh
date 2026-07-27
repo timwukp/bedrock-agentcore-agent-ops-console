@@ -16,6 +16,17 @@ LOGIN_SECRET_ID="${LOGIN_SECRET_ID:-}"         # Secrets Manager secret with tes
 SKILL_REPO_URL="${SKILL_REPO_URL:-}"           # git repo the harness skill lives in
 SPANS_SINCE="${SPANS_SINCE:-}"                 # ISO ts when OTEL_TRACES_SAMPLER=always_on was enabled
 
+# ── security tunables (defaults match cdk/stack.py) ───────────────────────────
+# PLUS enables Cognito threat protection: sign-ins using credentials found in public breaches are
+# blocked and anomalous attempts are risk-scored. It is a paid feature plan — set COGNITO_TIER=ESSENTIALS
+# to opt out, accepting that credential stuffing is then unmitigated.
+COGNITO_TIER="${COGNITO_TIER:-PLUS}"
+PASSWORD_MIN_LENGTH="${PASSWORD_MIN_LENGTH:-20}"
+# Caps how fast anyone can grind POST /api/login, the only unauthenticated write route. Far above
+# any human operator's usage, so normal dashboard traffic never notices it.
+API_RATE_LIMIT="${API_RATE_LIMIT:-20}"         # steady-state requests/second
+API_BURST_LIMIT="${API_BURST_LIMIT:-40}"       # burst bucket
+
 FN=agent-cicd-admin
 ROLE=AgentAdminLambdaRole
 TABLE=AgentAdminRuns
@@ -43,9 +54,16 @@ aws iam put-role-policy --role-name "$ROLE" --policy-name AgentAdminPerms --poli
 POOL_ID=$(aws cognito-idp list-user-pools --max-results 60 --region "$REGION" \
   --query "UserPools[?Name=='$POOL_NAME'].Id" --output text)
 if [ -z "$POOL_ID" ] || [ "$POOL_ID" = "None" ]; then
+  # RequireSymbols stays false on purpose: the password generated below is alphanumeric, so
+  # requiring symbols would make admin-set-user-password reject this script's own password.
+  # Length is the strength knob instead. AllowAdminCreateUserOnly=true disables self-signup —
+  # the dashboard authorizes on "any valid token from this pool", so an extra account would
+  # inherit every write endpoint (see SECURITY.md).
   POOL_ID=$(aws cognito-idp create-user-pool --pool-name "$POOL_NAME" --region "$REGION" \
-    --policies '{"PasswordPolicy":{"MinimumLength":12,"RequireUppercase":true,"RequireLowercase":true,"RequireNumbers":true,"RequireSymbols":false}}' \
+    --policies "{\"PasswordPolicy\":{\"MinimumLength\":$PASSWORD_MIN_LENGTH,\"RequireUppercase\":true,\"RequireLowercase\":true,\"RequireNumbers\":true,\"RequireSymbols\":false}}" \
     --admin-create-user-config '{"AllowAdminCreateUserOnly":true}' \
+    --user-pool-tier "$COGNITO_TIER" \
+    $([ "$COGNITO_TIER" = "PLUS" ] && echo "--user-pool-add-ons AdvancedSecurityMode=ENFORCED") \
     --deletion-protection ACTIVE --query 'UserPool.Id' --output text)
   CLIENT_ID=$(aws cognito-idp create-user-pool-client --user-pool-id "$POOL_ID" --region "$REGION" \
     --client-name admin-dashboard --no-generate-secret \
@@ -62,6 +80,19 @@ if [ -z "$POOL_ID" ] || [ "$POOL_ID" = "None" ]; then
 else
   CLIENT_ID=$(aws cognito-idp list-user-pool-clients --user-pool-id "$POOL_ID" --region "$REGION" \
     --query 'UserPoolClients[0].ClientId' --output text)
+  # Report drift on an existing pool but do NOT "fix" it here. aws cognito-idp update-user-pool has
+  # PUT semantics, not PATCH: any field omitted from the call reverts to its default. A convenient
+  # single-field call to raise the tier would silently reset AllowAdminCreateUserOnly and re-open
+  # self-signup. If you want these applied, read the current config, merge, send it whole, read back.
+  read -r CUR_TIER CUR_MINLEN CUR_ADMINONLY < <(aws cognito-idp describe-user-pool \
+    --user-pool-id "$POOL_ID" --region "$REGION" --output text \
+    --query 'UserPool.[UserPoolTier,Policies.PasswordPolicy.MinimumLength,AdminCreateUserConfig.AllowAdminCreateUserOnly]' \
+    2>/dev/null || echo "? ? ?")
+  [ "$CUR_TIER" = "PLUS" ] || echo "  note: pool tier is $CUR_TIER (not PLUS) — threat protection is off"
+  { [ "$CUR_MINLEN" -ge "$PASSWORD_MIN_LENGTH" ]; } 2>/dev/null \
+    || echo "  note: password minimum is $CUR_MINLEN (want >= $PASSWORD_MIN_LENGTH)"
+  [ "$CUR_ADMINONLY" = "True" ] \
+    || echo "  WARNING: self-signup is ENABLED on this pool — any stranger can register and, because the dashboard accepts any valid token from it, gain every write endpoint"
 fi
 
 # ── package: vendor boto3 (Lambda's builtin may predate AgentCore harness APIs) ─
@@ -93,6 +124,12 @@ if [ -z "$API_ID" ] || [ "$API_ID" = "None" ]; then
     --action lambda:InvokeFunction --principal apigateway.amazonaws.com \
     --source-arn "arn:aws:execute-api:$REGION:$ACCOUNT_ID:$API_ID/*"
 fi
+
+# Throttle the auto-created $default stage. Applied on every run (not just on create) so existing
+# deployments pick it up when they re-run this script for a code update.
+aws apigatewayv2 update-stage --api-id "$API_ID" --stage-name '$default' --region "$REGION" \
+  --default-route-settings "ThrottlingRateLimit=$API_RATE_LIMIT,ThrottlingBurstLimit=$API_BURST_LIMIT,DetailedMetricsEnabled=true" \
+  >/dev/null
 
 echo ""
 echo "Dashboard: https://$API_ID.execute-api.$REGION.amazonaws.com/"

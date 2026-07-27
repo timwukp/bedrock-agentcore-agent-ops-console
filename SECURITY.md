@@ -83,11 +83,13 @@ Documented rather than hidden, so you can judge them for your own environment:
 - **`ADMIN_TOKEN` is a break-glass bypass.** If set, a matching `x-admin-token` header authenticates
   writes without Cognito. It has no expiry, no rotation and no per-caller audit trail. Leave it
   unset unless you need it (unset ⇒ the fallback is inert), and treat it as a credential if you do.
-- **`deploy/deploy.sh` applies weaker Cognito/API settings than `cdk/stack.py`.** The CDK path sets
-  a 20-char password minimum, Cognito Plus-tier threat protection, and a 20 rps / 40 burst throttle
-  on the API stage. The shell script — the path the README shows — creates a 12-char minimum, no
-  threat protection, and **no throttle on `POST /api/login`**, the one unauthenticated write route.
-  If you deploy with the script, consider applying those three yourself.
+- **Existing deployments don't get the Cognito settings retroactively.** `deploy/deploy.sh` and
+  `cdk/stack.py` both create pools with a 20-char password minimum and Plus-tier threat protection,
+  but a pool created by an earlier version keeps its old settings — the script reports the drift and
+  deliberately refuses to "fix" it, because a partial `update-user-pool` call would reset other
+  fields (see the CLI note below). The API throttle *is* re-applied on every run. Deliberately
+  overridable: `COGNITO_TIER=ESSENTIALS` opts out of the paid Plus plan, at the cost of leaving
+  credential stuffing unmitigated.
 - **No MFA on the Cognito pool** by default. For a single-admin pool, Plus-tier threat protection
   (which blocks credential-stuffing with breached passwords) is arguably the higher-value control,
   but enable MFA if your exposure warrants it.

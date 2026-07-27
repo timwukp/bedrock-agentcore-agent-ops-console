@@ -51,6 +51,15 @@ The script creates (idempotently): DynamoDB table, IAM role, Cognito user pool +
 (password goes to Secrets Manager `agent-admin/dashboard-login`, never printed), the Lambda, and an
 HTTP API Gateway. Re-run it to ship code updates.
 
+Security defaults are overridable — they match `cdk/stack.py` and are documented in
+[SECURITY.md](SECURITY.md):
+
+| Variable | Default | Notes |
+|---|---|---|
+| `COGNITO_TIER` | `PLUS` | Enables threat protection (blocks sign-ins with breached credentials). A **paid** feature plan — set `ESSENTIALS` to opt out. |
+| `PASSWORD_MIN_LENGTH` | `20` | Applied to newly created pools only. |
+| `API_RATE_LIMIT` / `API_BURST_LIMIT` | `20` / `40` | Throttles the API stage, capping credential-grinding on `POST /api/login`. Re-applied on every run. |
+
 ## CRITICAL prerequisite: enable trace sampling
 
 AgentCore harness runtimes default to `trace_sampled=False`. **Evaluations, batch scoring, insights,
