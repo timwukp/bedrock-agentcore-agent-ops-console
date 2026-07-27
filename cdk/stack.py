@@ -48,9 +48,21 @@ class AdminDashboardStack(cdk.Stack):
             user_pool_name="agent-admin-pool",
             self_sign_up_enabled=False,
             password_policy=cognito.PasswordPolicy(
-                min_length=12, require_uppercase=True,
+                # NB: require_symbols stays False on purpose — the admin password is generated
+                # by the AdminLogin secret below with exclude_punctuation=True, so requiring
+                # symbols here would make the documented admin-set-user-password step reject
+                # its own generated password. Length is the strength knob instead.
+                min_length=20, require_uppercase=True,
                 require_lowercase=True, require_digits=True, require_symbols=False,
             ),
+            # Threat protection: Cognito refuses sign-ins using credentials found in public
+            # breaches and risk-scores anomalous attempts. For a single-admin pool this is the
+            # control that actually matters — credential stuffing is a far likelier path than
+            # brute-forcing a 20-char password. Requires the Plus feature plan (the modern
+            # replacement for the retired "advanced security features" pricing structure);
+            # advancedSecurityMode is deprecated in CDK, hence the two properties below.
+            feature_plan=cognito.FeaturePlan.PLUS,
+            standard_threat_protection_mode=cognito.StandardThreatProtectionMode.FULL_FUNCTION,
             removal_policy=cdk.RemovalPolicy.RETAIN,
         )
         client = pool.add_client(
@@ -137,6 +149,17 @@ class AdminDashboardStack(cdk.Stack):
             self, "Api",
             api_name="agent-cicd-admin-api",
             default_integration=integrations.HttpLambdaIntegration("Fn", fn),
+        )
+        # Throttle the default stage. HttpApi creates its default stage internally and does not
+        # forward throttle settings, so set them on the underlying CfnStage. The security value
+        # is on POST /api/login — the only unauthenticated write route — where this caps how
+        # fast anyone can grind credentials, on top of Cognito's own InitiateAuth quota. The
+        # ceiling sits far above a human operator's usage, so demo traffic never notices it.
+        api.default_stage.node.default_child.add_property_override(
+            "DefaultRouteSettings",
+            {"ThrottlingRateLimit": 20,      # steady-state requests/second
+             "ThrottlingBurstLimit": 40,     # burst bucket
+             "DetailedMetricsEnabled": True},  # per-route metrics for spike visibility
         )
 
         cdk.CfnOutput(self, "DashboardUrl", value=api.api_endpoint)
