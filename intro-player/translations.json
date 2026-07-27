@@ -1,15 +1,64 @@
 {
   "languages": {
-    "en": {"name": "English", "voice": "Matthew", "engine": "generative", "polly": true},
-    "zh": {"name": "普通话", "voice": "Zhiyu", "engine": "neural", "polly": true, "bcp47": "zh-CN"},
-    "yue": {"name": "粵語", "voice": "Hiujin", "engine": "neural", "polly": true, "bcp47": "zh-HK"},
-    "ja": {"name": "日本語", "voice": "Takumi", "engine": "neural", "polly": true, "bcp47": "ja-JP"},
-    "ko": {"name": "한국어", "voice": "Seoyeon", "engine": "neural", "polly": true, "bcp47": "ko-KR"},
-    "vi": {"name": "Tiếng Việt", "polly": false, "bcp47": "vi-VN"},
-    "ms": {"name": "Bahasa Melayu", "polly": false, "bcp47": "ms-MY"},
-    "id": {"name": "Bahasa Indonesia", "polly": false, "bcp47": "id-ID"},
-    "th": {"name": "ไทย", "polly": false, "bcp47": "th-TH"},
-    "fil": {"name": "Filipino", "polly": false, "bcp47": "fil-PH"}
+    "en": {
+      "name": "English",
+      "voice": "Matthew",
+      "engine": "generative",
+      "polly": true
+    },
+    "zh": {
+      "name": "普通话",
+      "voice": "Zhiyu",
+      "engine": "neural",
+      "polly": true,
+      "bcp47": "zh-CN"
+    },
+    "yue": {
+      "name": "粵語",
+      "voice": "Hiujin",
+      "engine": "neural",
+      "polly": true,
+      "bcp47": "zh-HK"
+    },
+    "ja": {
+      "name": "日本語",
+      "voice": "Takumi",
+      "engine": "neural",
+      "polly": true,
+      "bcp47": "ja-JP"
+    },
+    "ko": {
+      "name": "한국어",
+      "voice": "Seoyeon",
+      "engine": "generative",
+      "polly": true,
+      "bcp47": "ko-KR"
+    },
+    "vi": {
+      "name": "Tiếng Việt",
+      "polly": false,
+      "bcp47": "vi-VN"
+    },
+    "ms": {
+      "name": "Bahasa Melayu",
+      "polly": false,
+      "bcp47": "ms-MY"
+    },
+    "id": {
+      "name": "Bahasa Indonesia",
+      "polly": false,
+      "bcp47": "id-ID"
+    },
+    "th": {
+      "name": "ไทย",
+      "polly": false,
+      "bcp47": "th-TH"
+    },
+    "fil": {
+      "name": "Filipino",
+      "polly": false,
+      "bcp47": "fil-PH"
+    }
   },
   "scenes": {
     "s1-problem": {
