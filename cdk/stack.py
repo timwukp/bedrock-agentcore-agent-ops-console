@@ -144,6 +144,17 @@ class AdminDashboardStack(cdk.Stack):
         table.grant_read_write_data(fn)
         login_secret.grant_read(fn)
 
+        # Permission Boundary (Security pillar SEC05 — reduce blast radius): acts as a hard
+        # ceiling so the Lambda execution role can never modify resources outside this system,
+        # even if its identity policies are later broadened. The boundary policy is pre-created
+        # in AWS (TokenMonitorPermissionBoundary) and referenced by ARN — CDK does not own its
+        # lifecycle, so it survives stack teardown and can be shared across stacks.
+        boundary = iam.ManagedPolicy.from_managed_policy_arn(
+            self, "PermBoundary",
+            f"arn:aws:iam::{self.account}:policy/TokenMonitorPermissionBoundary",
+        )
+        iam.PermissionsBoundary.of(fn).apply(boundary)
+
         # ── HTTP API Gateway (not a Function URL: org guardrails may block those) ─
         api = apigwv2.HttpApi(
             self, "Api",
