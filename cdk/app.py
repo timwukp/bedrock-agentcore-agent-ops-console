@@ -21,4 +21,10 @@ AdminDashboardStack(
     ),
 )
 
+# ABAC isolation tag (Security pillar SEC05): every resource in this app belongs
+# to the token-monitor system. The matching Permission Boundary on the Lambda
+# execution role denies lambda:UpdateFunction* / iam:*RolePolicy on resources
+# tagged with a different system value — blocking cross-system contamination.
+cdk.Tags.of(app).add("system", "token-monitor")
+
 app.synth()
