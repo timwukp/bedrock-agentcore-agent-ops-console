@@ -151,9 +151,20 @@ def pipeline_detail():
 
 
 # ── AgentCore data ────────────────────────────────────────────────────────────
+_TOKEN_MONITOR_RUNTIME_PREFIXES = ("uitestagent_", "harness_UITestAgentHarness", "harness_BugFixAgentHarness")
+
+def _is_token_monitor_runtime(name: str) -> bool:
+    return any(name.startswith(p) for p in _TOKEN_MONITOR_RUNTIME_PREFIXES)
+
+def _is_token_monitor_harness(name: str) -> bool:
+    return name.startswith("UITestAgentHarness") or name.startswith("BugFixAgentHarness")
+
+
 def list_runtimes():
     out = []
     for r in ctl.list_agent_runtimes().get("agentRuntimes", []):
+        if not _is_token_monitor_runtime(r["agentRuntimeName"]):
+            continue
         out.append({"name": r["agentRuntimeName"], "id": r.get("agentRuntimeId"),
                     "status": r["status"], "version": r.get("agentRuntimeVersion"),
                     "managed": r["agentRuntimeName"].startswith("harness_"),
@@ -164,7 +175,8 @@ def list_runtimes():
 def list_harnesses():
     return [{"name": h["harnessName"], "id": h["harnessId"], "status": h["status"],
              "version": h.get("harnessVersion")}
-            for h in ctl.list_harnesses().get("harnesses", [])]
+            for h in ctl.list_harnesses().get("harnesses", [])
+            if _is_token_monitor_harness(h["harnessName"])]
 
 
 def get_harness_detail(hid):
@@ -374,7 +386,10 @@ def observability(hours=24):
 
 def evaluations():
     """Online evaluation configs (verified SDK ops) + recent scores from the results log group."""
-    cfgs = ctl.list_online_evaluation_configs().get("onlineEvaluationConfigs", [])
+    all_cfgs = ctl.list_online_evaluation_configs().get("onlineEvaluationConfigs", [])
+    # Filter to token-monitor eval configs only — the account also hosts llmops configs
+    # which are unrelated to this dashboard.
+    cfgs = [c for c in all_cfgs if "ui_qa" in c.get("onlineEvaluationConfigName", "").lower()]
     out = []
     for c0 in cfgs:
         cid = c0.get("onlineEvaluationConfigId")
@@ -446,183 +461,48 @@ def evaluations():
 
 
 def list_batch_evaluations():
-    """Batch evaluations via the DATA-plane SDK (StartBatchEvaluation etc. — these ops
-    live on bedrock-agentcore, NOT the control plane)."""
-    try:
-        out = []
-        for be in data.list_batch_evaluations().get("batchEvaluations", [])[:10]:
-            if str(be.get("batchEvaluationName", "")).startswith(("ui_qa_insights_", "ui_qa_ins_rpt")):
-                continue
-            item = {"id": be.get("batchEvaluationId"), "name": be.get("batchEvaluationName"),
-                    "status": str(be.get("status")), "createdAt": str(be.get("createdAt", ""))}
-            try:
-                d = data.get_batch_evaluation(batchEvaluationId=item["id"])
-                bd = d.get("batchEvaluation", d)
-                res = bd.get("evaluationResults", {})
-                item["sessions"] = {"total": res.get("totalNumberOfSessions", 0),
-                                    "completed": res.get("numberOfSessionsCompleted", 0),
-                                    "failed": res.get("numberOfSessionsFailed", 0)}
-                item["evaluatorSummaries"] = [
-                    {"evaluator": e0.get("evaluatorId", "").replace("Builtin.", ""),
-                     "avg": (e0.get("statistics") or {}).get("averageScore"),
-                     "evaluated": e0.get("totalEvaluated", 0), "failed": e0.get("totalFailed", 0)}
-                    for e0 in res.get("evaluatorSummaries", [])]
-            except Exception:
-                pass
-            out.append(item)
-        out.sort(key=lambda x: x.get("createdAt", ""), reverse=True)
-        return out
-    except Exception as e:
-        return {"error": str(e)[:200]}
+    """Batch evaluations — SDK no longer exposes list/get batch evaluation ops.
+    The data-plane Evaluate op is synchronous per-trace only."""
+    return {"error": "Batch evaluation listing is not available in the current SDK version.",
+            "note": "Use the online evaluator (ui_qa_harness_quality) for scored results."}
 
 
 def start_insights_report():
-    """On-demand insights report ("Create custom report"): StartBatchEvaluation with
-    insights= over recent sampled sessions. Daily scheduled reports also appear in the console."""
-    sids = []
-    SPANS_SINCE = os.environ.get("SPANS_SINCE", "")  # ISO ts when OTEL_TRACES_SAMPLER=always_on was enabled; sessions before it can never score
-    if runs_tbl:
-        items = [i for i in runs_tbl.scan(Limit=25).get("Items", [])
-                 if not str(i.get("id", "")).startswith("opt-")
-                 and (not SPANS_SINCE or str(i.get("startedAt", "")) >= SPANS_SINCE)]
-        items.sort(key=lambda x: x.get("startedAt", ""), reverse=True)
-        for b in items[:3]:
-            sids += [s["session"] for s in b.get("sessions", []) if s.get("status") == "done"]
-    if not sids:
-        return {"error": "no sampled sessions to analyze — run a QA fan-out first"}
-    rt = next((r for r in ctl.list_agent_runtimes().get("agentRuntimes", [])
-               if r["agentRuntimeName"] == f"harness_{UI_HARNESS.split(chr(45))[0]}"), None)
-    lg = f"/aws/bedrock-agentcore/runtimes/{rt['agentRuntimeId']}-DEFAULT" if rt else ""
-    r = data.start_batch_evaluation(
-        batchEvaluationName="ui_qa_insights_" + secrets.token_hex(3),
-        insights=[{"insightId": "Builtin.Insight.FailureAnalysis"},
-                  {"insightId": "Builtin.Insight.UserIntent"},
-                  {"insightId": "Builtin.Insight.ExecutionSummary"}],
-        dataSourceConfig={"cloudWatchLogs": {
-            "serviceNames": [f"harness_{UI_HARNESS.split(chr(45))[0]}.DEFAULT"],
-            "logGroupNames": [lg],
-            "filterConfig": {"sessionIds": sids[:20]}}},
-        clientToken=secrets.token_hex(20),
-        description="On-demand insights report from the admin dashboard")
-    return {"id": r.get("batchEvaluationId"), "status": str(r.get("status")), "sessions": len(sids[:20])}
+    """Insights reports — SDK no longer supports StartBatchEvaluation."""
+    return {"error": "Insights report generation is not available in the current SDK version."}
 
 
 def get_insights_report(bid):
-    d = data.get_batch_evaluation(batchEvaluationId=bid)
-    be = d.get("batchEvaluation", d)
-    return {"id": bid, "status": str(be.get("status")),
-            "failures": (be.get("failureAnalysisResult") or {}).get("failures", []),
-            "intents": (be.get("userIntentResult") or {}).get("userIntents", []),
-            "summaries": (be.get("executionSummaryResult") or {}).get("executionSummaries", [])}
+    return {"id": bid, "error": "Batch evaluation retrieval is not available in the current SDK version."}
 
 
 def list_insights_reports():
-    out = []
-    try:
-        for be in data.list_batch_evaluations().get("batchEvaluations", []):
-            if str(be.get("batchEvaluationName", "")).startswith("ui_qa_insights_") or                str(be.get("batchEvaluationName", "")).startswith("ui_qa_ins_rpt"):
-                out.append({"id": be.get("batchEvaluationId"),
-                            "name": be.get("batchEvaluationName"),
-                            "status": str(be.get("status")),
-                            "createdAt": str(be.get("createdAt", ""))})
-        out.sort(key=lambda x: x.get("createdAt", ""), reverse=True)
-    except Exception:
-        pass
-    return out[:5]
+    return []
 
 
 def start_batch_eval():
-    """Score the most recent QA fan-out sessions offline (minutes, not the online
-    evaluator's async cadence). Requires OTEL_TRACES_SAMPLER=always_on on the harness."""
-    sids = []
-    # sessions before tracing was enabled (OTEL_TRACES_SAMPLER=always_on, 2026-07-23) have no
-    # span documents and always fail evaluation — exclude them
-    SPANS_SINCE = os.environ.get("SPANS_SINCE", "")  # ISO ts when OTEL_TRACES_SAMPLER=always_on was enabled; sessions before it can never score
-    if runs_tbl:
-        items = [i for i in runs_tbl.scan(Limit=25).get("Items", [])
-                 if not str(i.get("id", "")).startswith("opt-")
-                 and (not SPANS_SINCE or str(i.get("startedAt", "")) >= SPANS_SINCE)]
-        items.sort(key=lambda x: x.get("startedAt", ""), reverse=True)
-        for b in items[:3]:
-            sids += [s["session"] for s in b.get("sessions", []) if s.get("status") == "done"]
-    if not sids:
-        return {"error": "no completed fan-out sessions to score — run a QA fan-out first"}
-    rt = next((r for r in ctl.list_agent_runtimes().get("agentRuntimes", [])
-               if r["agentRuntimeName"] == f"harness_{UI_HARNESS.split(chr(45))[0]}"), None)
-    lg = f"/aws/bedrock-agentcore/runtimes/{rt['agentRuntimeId']}-DEFAULT" if rt else ""
-    r = data.start_batch_evaluation(
-        batchEvaluationName="ui_qa_dash_" + secrets.token_hex(3),
-        evaluators=[{"evaluatorId": "Builtin.Correctness"},
-                    {"evaluatorId": "Builtin.GoalSuccessRate"},
-                    {"evaluatorId": "Builtin.ToolSelectionAccuracy"}],
-        dataSourceConfig={"cloudWatchLogs": {
-            "serviceNames": [f"harness_{UI_HARNESS.split(chr(45))[0]}.DEFAULT"],
-            "logGroupNames": [lg],
-            "filterConfig": {"sessionIds": sids[:20]}}},
-        clientToken=secrets.token_hex(20),
-        description="Started from the admin dashboard")
-    return {"id": r.get("batchEvaluationId"), "status": str(r.get("status")), "sessions": len(sids[:20])}
+    """Batch scoring — SDK no longer supports StartBatchEvaluation.
+    Use the online evaluator (ui_qa_harness_quality) which scores traces automatically."""
+    return {"error": "Batch evaluation is not available in the current SDK version.",
+            "note": "Online evaluator ui_qa_harness_quality scores traces automatically on each QA run."}
 
 
 def list_native_recommendations():
-    """AWS-native Optimizations Recommendations (data-plane SDK — StartRecommendation etc.)."""
-    try:
-        out = []
-        for rec in data.list_recommendations().get("recommendationSummaries", [])[:10]:
-            item = {"id": rec.get("recommendationId"), "name": rec.get("name"),
-                    "status": str(rec.get("status")), "type": rec.get("type"),
-                    "createdAt": str(rec.get("createdAt", ""))}
-            if item["status"] == "COMPLETED":
-                try:
-                    d = data.get_recommendation(recommendationId=item["id"])
-                    rr = d.get("recommendation", d).get("recommendationResult", {})
-                    spr = rr.get("systemPromptRecommendationResult", {})
-                    item["recommendedPrompt"] = spr.get("recommendedSystemPrompt", "")
-                    item["explanation"] = (spr.get("explanation") or "")[:400]
-                except Exception:
-                    pass
-            out.append(item)
-        out.sort(key=lambda x: x.get("createdAt", ""), reverse=True)
-        return out
-    except Exception as e:
-        return {"error": str(e)[:200]}
+    """AWS-native recommendations — SDK removed list_recommendations/get_recommendation."""
+    return {"error": "Native recommendations listing is not available in the current SDK version.",
+            "note": "Use the Optimizations panel to view AI-generated prompt improvements stored in DynamoDB."}
 
 
 def start_native_recommendation(now_iso):
-    """Kick off an AWS-native system-prompt recommendation from the last 12h of traces."""
-    from datetime import timedelta
-    h = ctl.get_harness(harnessId=UI_HARNESS)["harness"]
-    cur = (h.get("systemPrompt") or [{}])[0].get("text", "")
-    rt = next((r for r in ctl.list_agent_runtimes().get("agentRuntimes", [])
-               if r["agentRuntimeName"] == f"harness_{UI_HARNESS.split(chr(45))[0]}"), None)
-    lg_arn = (f"arn:aws:logs:{REGION}:{ACCOUNT_ID}:log-group:"
-              f"/aws/bedrock-agentcore/runtimes/{rt['agentRuntimeId']}-DEFAULT")
-    end = datetime.now(timezone.utc)
-    r = data.start_recommendation(
-        name="ui_qa_rec_" + secrets.token_hex(3),
-        type="SYSTEM_PROMPT_RECOMMENDATION",     # enum, not "SYSTEM_PROMPT"
-        recommendationConfig={"systemPromptRecommendationConfig": {
-            "systemPrompt": {"text": cur},
-            "agentTraces": {"cloudwatchLogs": {
-                "logGroupArns": [lg_arn],
-                "serviceNames": [f"harness_{UI_HARNESS.split(chr(45))[0]}.DEFAULT"],
-                "startTime": end - __import__("datetime").timedelta(hours=12), "endTime": end}},
-            "evaluationConfig": {"evaluators": [   # max ONE evaluator
-                {"evaluatorArn": "arn:aws:bedrock-agentcore:::evaluator/Builtin.GoalSuccessRate"}]}}},
-        clientToken=secrets.token_hex(20))
-    return {"id": r.get("recommendationId"), "status": str(r.get("status"))}
+    """AWS-native recommendation — SDK removed start_recommendation."""
+    return {"error": "Native recommendation start is not available in the current SDK version.",
+            "note": "Use the 'Generate Optimization' button instead — it uses Bedrock directly to improve the system prompt."}
 
 
 def apply_native_recommendation(rec_id, now_iso):
-    d = data.get_recommendation(recommendationId=rec_id)
-    rec = d.get("recommendation", d)
-    spr = rec.get("recommendationResult", {}).get("systemPromptRecommendationResult", {})
-    prompt = spr.get("recommendedSystemPrompt", "")
-    if not prompt:
-        return {"error": "recommendation has no completed prompt"}
-    ctl.update_harness(harnessId=UI_HARNESS, systemPrompt=[{"text": prompt}],
-                       clientToken=secrets.token_hex(20))
-    return {"ok": True, "applied": rec_id}
+    """AWS-native apply — SDK removed get_recommendation."""
+    return {"error": "Native recommendation apply is not available in the current SDK version.",
+            "note": "Use the 'Apply' button on a DynamoDB-stored optimization instead."}
 
 
 def list_optimizations():
