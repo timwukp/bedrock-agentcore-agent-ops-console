@@ -24,6 +24,11 @@ from writes:
   URL can `GET` the dashboard, QA findings, pipeline state, CloudWatch metrics and evaluation
   scores. That is the intended design for an always-on status page, not an oversight. If that
   doesn't suit you, put the API behind an authorizer, CloudFront + WAF, or private endpoint.
+  Note that `GET /api/cost` exposes **account-level AWS spend totals** (Cost Explorer, by
+  service family) — if that is sensitive for your account, wrap the route in the same
+  `_authed()` guard the write endpoints use (a one-line change in the handler). The endpoint
+  cannot be used to run up your Cost Explorer bill: CE responses are cached ~6 h, so hammering
+  it costs at most a few $0.01 queries per day.
 - **All write endpoints require authentication.** Every `POST` route except `/api/login` —
   `/api/qa-run`, `/api/skill`, `/api/limits`, `/api/batch-eval`, `/api/insights-report`,
   `/api/native-rec`, `/api/native-rec/apply`, `/api/optimize`, `/api/optimize/apply` — requires a

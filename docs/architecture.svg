@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1160 636" font-family="system-ui,-apple-system,'Segoe UI',Roboto,sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1160 712" font-family="system-ui,-apple-system,'Segoe UI',Roboto,sans-serif">
   <defs>
     <marker id="ah" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
       <path d="M0,0 L8,4 L0,8 Z" fill="#5b8cff"/>
@@ -26,7 +26,7 @@
   </defs>
 
   <!-- canvas -->
-  <rect x="0" y="0" width="1160" height="636" fill="#0b1020" rx="14"/>
+  <rect x="0" y="0" width="1160" height="712" fill="#0b1020" rx="14"/>
 
   <!-- ── column 1: user ── -->
   <rect class="card" x="30" y="205" width="170" height="110" rx="12"/>
@@ -63,15 +63,15 @@
   <text class="title" x="600" y="230">Lambda</text>
   <text class="sub" x="600" y="248">agent-ops-console</text>
   <text class="tiny" x="551" y="285">one function · HTML + JSON API</text>
-  <text class="tiny" x="551" y="301">4 tabs: pipeline · observability</text>
-  <text class="tiny" x="551" y="317">evaluations · optimizations</text>
+  <text class="tiny" x="551" y="301">5 tabs: pipeline · observability</text>
+  <text class="tiny" x="551" y="317">cost · evaluations · optimizations</text>
 
   <!-- async self-invoke loop -->
   <path class="wire2" d="M645,185 C625,150 685,150 665,182" marker-end="url(#ah2)"/>
   <text class="tiny" x="600" y="142">async self-invoke (fan-out · drafts)</text>
 
   <!-- ── column 4: backends group ── -->
-  <rect class="grp" x="800" y="28" width="330" height="580" rx="14"/>
+  <rect class="grp" x="800" y="28" width="330" height="656" rx="14"/>
   <text class="grplabel" x="820" y="52">DATA SOURCES &amp; CONTROL</text>
 
   <!-- agentcore control -->
@@ -120,6 +120,13 @@
   <text class="title" x="878" y="549" font-size="13">GitHub API</text>
   <text class="tiny" x="878" y="566">Actions runs · PR status · workflow jobs · commits</text>
 
+  <!-- cost explorer -->
+  <rect class="card2" x="820" y="598" width="290" height="64" rx="10"/>
+  <text x="836" y="636" font-size="22" fill="#3ecf8e" font-weight="700">$</text>
+  <path d="M856,640 v-12 M866,640 v-20 M876,640 v-7" stroke="#3ecf8e" stroke-width="4" stroke-linecap="round"/>
+  <text class="title" x="892" y="625" font-size="13">Cost Explorer</text>
+  <text class="tiny" x="892" y="642">billed cost by service &amp; tag (cached · ~24h lag)</text>
+
   <!-- lambda -> backends wires -->
   <path class="wire2" d="M755,235 C785,220 790,130 818,102" marker-end="url(#ah2)"/>
   <path class="wire2" d="M755,250 C785,240 790,195 818,178" marker-end="url(#ah2)"/>
@@ -128,7 +135,8 @@
   <path class="wire2" d="M755,292 C785,305 790,388 818,399" marker-end="url(#ah2)"/>
   <path class="wire2" d="M755,308 C788,325 790,462 818,475" marker-end="url(#ah2)"/>
   <path class="wire2" d="M755,322 C792,345 790,536 818,551" marker-end="url(#ah2)"/>
+  <path class="wire2" d="M755,332 C795,365 790,610 818,627" marker-end="url(#ah2)"/>
 
   <!-- footer -->
-  <text class="tiny" x="30" y="624">Serverless &amp; always-on — no servers to keep running. Reads are open; writes require a Cognito Bearer token validated server-side per request.</text>
+  <text class="tiny" x="30" y="700">Serverless &amp; always-on — no servers to keep running. Reads are open; writes require a Cognito Bearer token validated server-side per request.</text>
 </svg>
