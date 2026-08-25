@@ -59,6 +59,12 @@
       "Resource": "*"
     },
     {
+      "Sid": "CostExplorerRead",
+      "Effect": "Allow",
+      "Action": ["ce:GetCostAndUsage"],
+      "Resource": "*"
+    },
+    {
       "Sid": "AgentCoreLogsRead",
       "Effect": "Allow",
       "Action": [

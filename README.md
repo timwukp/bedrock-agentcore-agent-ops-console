@@ -9,12 +9,13 @@ but the dashboard works with any AgentCore harness/runtime setup.
 
 ![Optimizations tab](docs/screenshots/optimizations-panel.png)
 
-## What you get — four tabs
+## What you get — five tabs
 
 | Tab | What it shows | Backed by |
 |---|---|---|
 | **Pipeline** | Harness/runtime status, GitHub Actions runs & PRs, latest QA findings with severity + evidence, QA screenshots, concurrent QA fan-out (1–10 parallel sessions) | AgentCore control plane, GitHub API, S3 |
 | **Observability** | Per-harness invocations / sessions / latency / error-rate stat tiles, 7-day daily-invocations column chart, token usage | `AWS/Bedrock-AgentCore` CloudWatch metrics + EMF `gen_ai.client.token.usage` |
+| **Cost** | Month-to-date **billed** cost split into AgentCore platform / Bedrock inference / CloudWatch observability, 30-day daily-cost chart, near-real-time **estimated** per-harness runtime cost, per-fan-out-run cost attribution, optional per-cost-allocation-tag breakdown | Cost Explorer `GetCostAndUsage` + vended `CPUUsed-vCPUHours` / `MemoryUsed-GBHours` CloudWatch metrics — see [Cost telemetry](#cost-telemetry--where-the-numbers-come-from) |
 | **Evaluations** | Online evaluation score gauges (Builtin.Correctness / GoalSuccessRate / ToolSelectionAccuracy), one-click **batch evaluation** of recent QA sessions (offline scoring in minutes) | AgentCore Evaluations (online configs + data-plane `StartBatchEvaluation`) |
 | **Optimizations** | Animated clickable how-it-works flow, **AI Insights** (failure root-cause clusters, user intents, execution summaries — on-demand reports), **AWS-native prompt recommendations** (`StartRecommendation`) and Bedrock-drafted alternatives, one-click apply via `UpdateHarness` | AgentCore Optimizations (data-plane SDK) + Bedrock |
 
@@ -30,9 +31,54 @@ Single Lambda, no build step, no framework — the dashboard HTML/JS/SVG lives i
 Function URL because some org guardrails block public Function URLs.
 
 Data sources read by the Lambda: AgentCore control & data planes, CloudWatch (metrics, Logs
-Insights, eval scores, spans), S3 (QA reports & screenshots), DynamoDB, Bedrock, and the **GitHub
-REST API** (Actions workflow runs, open PRs, workflow jobs/steps, and branch commits — anonymous by
-default, `GITHUB_TOKEN` optional to lift rate limits).
+Insights, eval scores, spans), **Cost Explorer** (billed cost, cached), S3 (QA reports &
+screenshots), DynamoDB, Bedrock, and the **GitHub REST API** (Actions workflow runs, open PRs,
+workflow jobs/steps, and branch commits — anonymous by default, `GITHUB_TOKEN` optional to lift
+rate limits).
+
+## Cost telemetry — where the numbers come from
+
+The Cost tab (`GET /api/cost?days=N[&byTag=1]`, `GET /api/cost?batch=<id>`) aggregates **three
+distinct telemetry sources**, each labeled in the UI as either `billed` (green) or `estimate`
+(amber):
+
+| Layer | Source of truth | Freshness | What it tells you |
+|---|---|---|---|
+| **1 · Billed** | Cost Explorer `ce:GetCostAndUsage` — `DAILY` granularity, `UnblendedCost`, grouped by `SERVICE` and classified into three families: `Amazon Bedrock AgentCore` (Runtime/Browser/Code Interpreter/Gateway/Memory platform charges), `Amazon Bedrock` (model inference — billed separately from AgentCore), `AmazonCloudWatch` (observability telemetry) | ~24 h billing lag; **account-wide** | The authoritative dollars — what actually lands on the invoice |
+| **2 · Estimated (per harness)** | Vended billing-visibility CloudWatch metrics `CPUUsed-vCPUHours` and `MemoryUsed-GBHours` (`AWS/Bedrock-AgentCore` namespace, dims `Resource`=runtime ARN / `Service`=`AgentCore.Runtime` / `Name`=`harness_X::DEFAULT`) × AgentCore list prices, plus the account-wide EMF token metric `gen_ai.client.token.usage` × model token prices | Near-real-time — metrics **flush ~10–15 min after a session ends** | Which harness is spending, today, before billing data exists |
+| **3 · Per-run attribution** | Fan-out batches record `startedAt`/`endedAt` in DynamoDB; the Lambda slices the layer-2 CPU/memory series (Period=60 s) inside each batch's `[start−60 s, end+120 s]` window and prices it | Same as layer 2 | Estimated cost of one QA fan-out run — the foundation for per-team / cost-center chargeback |
+
+Honest-numbers caveats, also surfaced in the UI:
+
+- Layer 1 is account-wide (SERVICE-level filtering cannot split multiple workloads sharing the
+  account) — per-harness splits come from layer 2, per-cost-center splits from cost-allocation
+  tags (below). The token metric in layer 2 has **no per-harness dimension**, so model-inference
+  cost is an account-wide estimate.
+- Layer 3 assumes the batch is the dominant traffic in its time window; overlapping runs are
+  co-attributed. Cost Explorer stays authoritative for dollars.
+- Cost Explorer charges **$0.01 per query** — responses are cached ~6 h (warm container +
+  `cost-cache-*` items in the DynamoDB runs table), and the per-tag breakdown is a separate
+  cached call behind a click.
+- Unit prices are env-overridable so a price change never needs a code change:
+  `PRICE_VCPU_HR` (default `0.0895`), `PRICE_GB_HR` (`0.00945`), `TOKEN_IN_PER_1K` (`0.003`),
+  `TOKEN_OUT_PER_1K` (`0.015`), `COST_CACHE_TTL_S` (`21600`).
+
+**Chargeback prerequisite (one-time):** tag your billable AgentCore resources and activate the
+tags as cost allocation tags — only usage *after* activation carries tags in billing data:
+
+```bash
+aws bedrock-agentcore-control tag-resource --resource-arn <runtime-arn> \
+    --tags CostCenter=<team>,Agent=<agent-name>
+# ~24-48h later, once the tag keys appear in billing data:
+aws ce update-cost-allocation-tags-status --cost-allocation-tags-status \
+    Status=Active,TagKey=CostCenter Status=Active,TagKey=Agent
+```
+
+The Cost tab's "per-tag breakdown" then groups AgentCore spend by the `Agent` tag. For
+**internal chargeback**, this tags + Cost Explorer path is the AWS-prescribed mechanism
+(Well-Architected COST03-BP03) — do **not** reach for AgentCore Payments for that: Payments
+moves real money to external merchants (x402/MPP, USDC wallets) and has no sandbox. See
+[docs/PAYMENTS-DEMO.md](docs/PAYMENTS-DEMO.md) for what Payments *is* for and a safe demo design.
 
 ## Deploy
 
