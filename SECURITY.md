@@ -22,7 +22,11 @@ from writes:
 
 - **Read endpoints are public and unauthenticated on purpose.** Anyone who knows the API Gateway
   URL can `GET` the dashboard, QA findings, pipeline state, CloudWatch metrics and evaluation
-  scores. That is the intended design for an always-on status page, not an oversight. If that
+  scores. That is the intended design for an always-on status page, not an oversight.
+  The exception is **QA screenshots**: they show the application under test *after* the QA agent
+  signed in, so `GET /api/qa-latest` returns their presigned URLs only to a signed-in admin
+  (anonymous callers get the findings and a screenshot count). `GET /api/harness` answers only for
+  the harnesses this console watches, and error responses carry no exception detail. If that
   doesn't suit you, put the API behind an authorizer, CloudFront + WAF, or private endpoint.
   Note that `GET /api/cost` exposes **account-level AWS spend totals** (Cost Explorer, by
   service family) — if that is sensitive for your account, wrap the route in the same
@@ -108,10 +112,12 @@ Documented rather than hidden, so you can judge them for your own environment:
 - The `admin` password is generated at deploy time into Secrets Manager
   (`agent-admin/dashboard-login`) and never printed. Rotate it in both Cognito and the secret.
 - `GITHUB_TOKEN` is optional and only lifts GitHub API rate limits. A read-only token is enough —
-  the dashboard never writes to GitHub.
-- Presigned S3 URLs for QA screenshots and intro audio are read-only `get_object` URLs scoped to a
-  single key in `QA_BUCKET`, expiring in 1 hour.
+  the dashboard never writes to GitHub. Without it GitHub allows 60 requests/hour per source IP,
+  and Lambda execution environments share egress IPs, so GitHub-backed panels can come up empty;
+  each failure is logged as `github GET <path> -> HTTP <code>` with the remaining rate limit.
+- Presigned S3 URLs are read-only `get_object` URLs scoped to a single key in `QA_BUCKET`. QA
+  screenshot URLs are issued only to signed-in callers and expire after `SCREENSHOT_URL_TTL_S`
+  (default 600 s); intro-audio URLs expire in 1 hour.
 - The `/intro/audio/` route validates its path against `audio/[a-z]{2,3}/[a-z0-9-]+\.mp3` before
-  presigning. The QA report `?prefix=` parameter has no such allow-list — it is passed to S3 as a
-  *list prefix*, which cannot address keys outside the bucket, so `?prefix=../../etc` simply matches
-  nothing. It is a structural property of prefix listing rather than an input check.
+  presigning. The QA report `?prefix=` parameter is validated against `run-latest` / `pr-<n>`;
+  anything else returns 400.

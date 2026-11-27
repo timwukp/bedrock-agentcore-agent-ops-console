@@ -16,8 +16,12 @@ but the dashboard works with any AgentCore harness/runtime setup.
 | **Pipeline** | Harness/runtime status, GitHub Actions runs & PRs, latest QA findings with severity + evidence, QA screenshots, concurrent QA fan-out (1–10 parallel sessions) | AgentCore control plane, GitHub API, S3 |
 | **Observability** | Per-harness invocations / sessions / latency / error-rate stat tiles, 7-day daily-invocations column chart, token usage | `AWS/Bedrock-AgentCore` CloudWatch metrics + EMF `gen_ai.client.token.usage` |
 | **Cost** | Month-to-date **billed** cost split into AgentCore platform / Bedrock inference / CloudWatch observability, 30-day daily-cost chart, near-real-time **estimated** per-harness runtime cost, per-fan-out-run cost attribution, optional per-cost-allocation-tag breakdown | Cost Explorer `GetCostAndUsage` + vended `CPUUsed-vCPUHours` / `MemoryUsed-GBHours` CloudWatch metrics — see [Cost telemetry](#cost-telemetry--where-the-numbers-come-from) |
-| **Evaluations** | Online evaluation score gauges (Builtin.Correctness / GoalSuccessRate / ToolSelectionAccuracy), one-click **batch evaluation** of recent QA sessions (offline scoring in minutes) | AgentCore Evaluations (online configs + data-plane `StartBatchEvaluation`) |
+| **Evaluations** | Online evaluation score gauges (Builtin.Correctness / GoalSuccessRate / ToolSelectionAccuracy) over the last `EVAL_WINDOW_DAYS` (default 90), aggregated server-side with CloudWatch Logs Insights and cached `EVAL_CACHE_TTL_S` (600 s), one-click **batch evaluation** of recent QA sessions (offline scoring in minutes) | AgentCore Evaluations (online configs + data-plane `StartBatchEvaluation`) |
 | **Optimizations** | Animated clickable how-it-works flow, **AI Insights** (failure root-cause clusters, user intents, execution summaries — on-demand reports), **AWS-native prompt recommendations** (`StartRecommendation`) and Bedrock-drafted alternatives, one-click apply via `UpdateHarness` | AgentCore Optimizations (data-plane SDK) + Bedrock |
+
+> **Currently disabled:** batch evaluation, AWS-native recommendations and on-demand insights
+> reports are placeholder stubs in `src/lambda_function.py` (their buttons report "not available").
+> The pinned boto3 exposes the underlying APIs, so restoring them is a follow-up.
 
 Write actions (fan-out, apply, generate) are protected by **Cognito login** (8-hour access tokens,
 server-side validation via `cognito-idp:GetUser`). Read-only views need no sign-in.
@@ -68,13 +72,13 @@ tags as cost allocation tags — only usage *after* activation carries tags in b
 
 ```bash
 aws bedrock-agentcore-control tag-resource --resource-arn <runtime-arn> \
-    --tags CostCenter=<team>,Agent=<agent-name>
+    --tags CostCenter=<team>,agent-type=<agent-name>
 # ~24-48h later, once the tag keys appear in billing data:
 aws ce update-cost-allocation-tags-status --cost-allocation-tags-status \
-    Status=Active,TagKey=CostCenter Status=Active,TagKey=Agent
+    Status=Active,TagKey=CostCenter Status=Active,TagKey=agent-type
 ```
 
-The Cost tab's "per-tag breakdown" then groups AgentCore spend by the `Agent` tag. For
+The Cost tab's "per-tag breakdown" then groups AgentCore spend by the `agent-type` tag (override with `COST_TAG_KEY`). For
 **internal chargeback**, this tags + Cost Explorer path is the AWS-prescribed mechanism
 (Well-Architected COST03-BP03) — do **not** reach for AgentCore Payments for that: Payments
 moves real money to external merchants (x402/MPP, USDC wallets) and has no sandbox. See
@@ -105,6 +109,7 @@ Security defaults are overridable — they match `cdk/stack.py` and are document
 | `COGNITO_TIER` | `PLUS` | Enables threat protection (blocks sign-ins with breached credentials). A **paid** feature plan — set `ESSENTIALS` to opt out. |
 | `PASSWORD_MIN_LENGTH` | `20` | Applied to newly created pools only. |
 | `API_RATE_LIMIT` / `API_BURST_LIMIT` | `20` / `40` | Throttles the API stage, capping credential-grinding on `POST /api/login`. Re-applied on every run. |
+| `BOTO3_VERSION` | `1.43.120` | boto3 vendored into the Lambda package. The runtime's built-in boto3 lacks the git skill type, `harnessVersion` and evaluation insights, which then show blank. |
 
 ## CRITICAL prerequisite: enable trace sampling
 
