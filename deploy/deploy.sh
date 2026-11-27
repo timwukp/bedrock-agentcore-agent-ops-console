@@ -97,7 +97,8 @@ fi
 
 # ── package: vendor boto3 (Lambda's builtin may predate AgentCore harness APIs) ─
 BUILD=$(mktemp -d)
-pip3 install -q boto3 -t "$BUILD"
+# Pinned: the runtime-bundled boto3 lacks the git skill type, harnessVersion and evaluation insights.
+pip3 install -q "boto3==${BOTO3_VERSION:-1.43.120}" -t "$BUILD"
 sed "s|__UI_HARNESS__|$UI_HARNESS|g; s|__SKILL_REPO_URL__|$SKILL_REPO_URL|g" \
   "$(dirname "$0")/../src/lambda_function.py" > "$BUILD/lambda_function.py"
 (cd "$BUILD" && zip -rq /tmp/admin-dashboard.zip .)
