@@ -59,7 +59,7 @@ fi
 # Placeholders scope the role to the watched harnesses, the UI harness's managed runtime
 # (harness_<name>-*) and the QA bucket. BUGFIX_HARNESS / QA_BUCKET may be unset: "none" keeps
 # the ARN well-formed and matches nothing.
-sed "s|UI_HARNESS_ROLE_ARN|$UI_ROLE_ARN|g; s|BUGFIX_HARNESS_ROLE_ARN|$BUGFIX_ROLE_ARN|g; s/UI_HARNESS_NAME/${UI_HARNESS%-*}/g; s/UI_HARNESS_ID/$UI_HARNESS/g; s/BUGFIX_HARNESS_NAME/${BUGFIX_HARNESS:+${BUGFIX_HARNESS%-*}}/g; s/harness_-\*/harness_none-*/g; s/BUGFIX_HARNESS_ID/${BUGFIX_HARNESS:-none}/g; s/QA_BUCKET/${QA_BUCKET:-none}/g; s/ACCOUNT_ID/$ACCOUNT_ID/g; s/REGION/$REGION/g" \
+sed "s|UI_HARNESS_ROLE_ARN|$UI_ROLE_ARN|g; s|BUGFIX_HARNESS_ROLE_ARN|$BUGFIX_ROLE_ARN|g; s/UI_HARNESS_NAME/${UI_HARNESS%-*}/g; s/UI_HARNESS_ID/$UI_HARNESS/g; s/BUGFIX_HARNESS_NAME/${BUGFIX_HARNESS:+${BUGFIX_HARNESS%-*}}/g; s/harness_-\*/harness_none-*/g; s/BUGFIX_HARNESS_ID/${BUGFIX_HARNESS:-none}/g; s/QA_BUCKET/${QA_BUCKET:-none}/g; s/QA_BROKER_FUNCTION/${QA_BROKER_FUNCTION:-qa-login-reset}/g; s/ACCOUNT_ID/$ACCOUNT_ID/g; s/REGION/$REGION/g" \
   "$(dirname "$0")/iam-policy.json" > /tmp/admin-policy.json
 aws iam put-role-policy --role-name "$ROLE" --policy-name AgentAdminPerms --policy-document file:///tmp/admin-policy.json
 
@@ -114,7 +114,10 @@ BUILD=$(mktemp -d)
 pip3 install -q "boto3==${BOTO3_VERSION:-1.43.120}" -t "$BUILD"
 sed "s|__UI_HARNESS__|$UI_HARNESS|g; s|__SKILL_REPO_URL__|$SKILL_REPO_URL|g" \
   "$(dirname "$0")/../src/lambda_function.py" > "$BUILD/lambda_function.py"
-cp "$(dirname "$0")/../src/run_qa_spec.json" "$BUILD/"  # read by lambda_function.py at import
+cp "$(dirname "$0")/../src/run_qa_spec.json" "$BUILD/"
+cp "$(dirname "$0")/../src/harness_lock.py" "$BUILD/"
+cp "$(dirname "$0")/../src/harness_lock_spec.json" "$BUILD/"
+cp "$(dirname "$0")/../src/qa_reset_broker_spec.json" "$BUILD/"  # read by lambda_function.py at import (VENDORED.json pins the vendored ones)
 (cd "$BUILD" && zip -rq /tmp/admin-dashboard.zip .)
 
 ENV_VARS="Variables={REGION=$REGION,UI_HARNESS=$UI_HARNESS,BUGFIX_HARNESS=$BUGFIX_HARNESS,TARGET_REPO=$TARGET_REPO,TARGET_URL=$TARGET_URL,QA_BUCKET=$QA_BUCKET,LOGIN_SECRET_ID=$LOGIN_SECRET_ID,QA_MAX_CONCURRENCY=$QA_MAX_CONCURRENCY,QA_URL_ALLOWLIST=$QA_URL_ALLOWLIST,RUNS_TABLE=$TABLE,COGNITO_POOL_ID=$POOL_ID,COGNITO_CLIENT_ID=$CLIENT_ID,SPANS_SINCE=$SPANS_SINCE}"

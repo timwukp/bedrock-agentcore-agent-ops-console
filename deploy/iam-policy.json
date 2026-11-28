@@ -182,6 +182,23 @@
         "sts:GetCallerIdentity"
       ],
       "Resource": "*"
+    },
+    {
+      "Sid": "RunQaLease",
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject",
+        "s3:DeleteObject"
+      ],
+      "Resource": "arn:aws:s3:::QA_BUCKET/locks/ui-harness.json"
+    },
+    {
+      "Sid": "RunQaBroker",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:InvokeFunction"
+      ],
+      "Resource": "arn:aws:lambda:REGION:ACCOUNT_ID:function:QA_BROKER_FUNCTION"
     }
   ]
 }

@@ -1,12 +1,12 @@
 {
   "spec": "ops-console-run-qa",
-  "version": 1,
-  "purpose": "How the dashboard's Run QA may start a signed-in session. Read by src/lambda_function.py at import and by tests/test_run_qa_switch.py. Shipped next to lambda_function.py by deploy/deploy.sh and cdk/stack.py.",
+  "version": 2,
+  "purpose": "How the dashboard's Run QA may start a signed-in session. Read by src/lambda_function.py at import and by tests/test_run_qa_switch.py and tests/test_run_qa_lease.py. Shipped next to lambda_function.py by deploy/deploy.sh and cdk/stack.py.",
   "enable": {
     "env": "QA_RUN_ENABLED",
     "default": true,
     "falseValues": ["0", "false", "no", "off"],
-    "why": "Kill switch. Run QA signs in with a test login that passes through the model. Until it takes the shared run lease and uses per-run passwords (token-monitoring feature-53), the owner can turn it off without a code change."
+    "why": "Kill switch: the owner can turn Run QA off without a code change."
   },
   "disabled": {
     "status": 409,
@@ -17,5 +17,26 @@
     "env": "HARNESS_QUALIFIER",
     "default": null,
     "why": "Harness endpoint to invoke (plan WS3). Dormant: when unset, invoke_harness gets no qualifier, which is today's behaviour."
-  }
+  },
+  "lease": {
+    "why": "One signed-in UI QA run at a time on the shared UI harness and QA logins, shared with the CI loop (token-monitoring feature-53). The rules are harness_lock_spec.json, vendored next to this file.",
+    "owner": "ops-console:{batchId}",
+    "runId": "the session id (admin-qa-<batch>-<i>-<hex>)",
+    "waitSeconds": 0,
+    "busyStatus": "busy: the UI harness lease is held by another run",
+    "lostNote": "the harness lease was lost mid-run; the password is still valid until the next rotation"
+  },
+  "rotation": {
+    "env": "QA_ROTATION",
+    "default": "broker",
+    "values": ["broker", "manual"],
+    "brokerFunctionEnv": "QA_BROKER_FUNCTION",
+    "brokerFunctionDefault": "qa-login-reset",
+    "secretEnv": "QA_BROKER_SECRET",
+    "secretDefault": "viewer",
+    "before": {"signOut": false},
+    "after": {"signOut": true},
+    "why": "broker: rotate the login before the harness call and again in finally, so the password the model typed is dead when the run ends (qa_reset_broker_spec.json is the request format). manual: take the lease but do not rotate; the owner rotates."
+  },
+  "order": ["acquire lease", "rotate before", "check lease", "invoke harness", "rotate after (finally)", "release lease (finally)"]
 }

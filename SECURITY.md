@@ -140,6 +140,12 @@ Documented rather than hidden, so you can judge them for your own environment:
 
   - `QA_RUN_ENABLED=false` switches Run QA off without a code change: 409 before any batch, and a queued
     worker stops before its harness call.
+  - **One signed-in run at a time, shared with CI.** Each session takes the UI harness lease
+    (`locks/ui-harness.json`, `harness_lock_spec.json`) without waiting, and records `busy` if another run holds it.
+  - **Per-run passwords.** With `QA_ROTATION=broker` (the default), the reset broker rotates the login before the
+    harness call; if that fails, no call is made. It rotates again in `finally`, so the password the model typed no
+    longer works when the session ends. If the lease was lost mid-run, the second rotation is skipped (it would
+    break the new holder's login), and the session records that the password stays valid until the next rotation.
 
   The audit is a tripwire, not a proof. The rules live in the prompt, and only the app's own
   server-side checks stop a write.

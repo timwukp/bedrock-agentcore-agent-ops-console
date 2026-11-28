@@ -89,10 +89,15 @@ def call(method, path, body=None, headers=None):
 
 AUTH = {"authorization": "Bearer good"}
 lf.cognito = FakeCognito()
+# run_one_session takes the UI harness lease and rotates through the broker (run_qa_spec.json): fake both
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from fakes import FakeBroker, FakeS3Lease  # noqa: E402
+lf.lock_s3, lf.broker_lambda = FakeS3Lease(), FakeBroker()
 
 
 def fresh():
     lf.lam, lf.runs_tbl, lf.data = FakeLam(), FakeTable([{"id": "b1", "concurrency": 1, "sessions": []}]), FakeData()
+    lf.lock_s3, lf.broker_lambda = FakeS3Lease(), FakeBroker()
 
 
 @test
@@ -159,12 +164,42 @@ def every_invoke_harness_call_goes_through_the_qualifier_helper():
         "an invoke_harness call bypasses _with_qualifier"
 
 
+# InvokeHarness also accepts per-call overrides (model, systemPrompt, tools, skills, allowedTools, maxIterations,
+# maxTokens, timeoutSeconds in botocore 1.43.120). An invoke-time skill replaces the pinned one by name, and an
+# invoke-time allowedTools would undo the harness's six-tool pin. Run QA must send only these keys.
+INVOKE_KEYS_ALLOWED = {"harnessArn", "qualifier", "runtimeSessionId", "messages", "actorId"}
+
+
+@test
+def run_qa_sends_no_harness_overrides():
+    fresh()
+    os.environ[SPEC["qualifier"]["env"]] = "ci"
+    lf.run_one_session("b1", 0, TARGET)
+    assert lf.data.invocations, "no invoke_harness call was made"
+    extra = set(lf.data.invocations[0]) - INVOKE_KEYS_ALLOWED
+    assert not extra, f"invoke_harness sent override fields {sorted(extra)}"
+
+
+@test
+def no_call_site_passes_override_fields():
+    import ast
+    tree = ast.parse((WT / "src/lambda_function.py").read_text())
+    sites = [n for n in ast.walk(tree) if isinstance(n, ast.Call)
+             and getattr(n.func, "id", getattr(n.func, "attr", None)) == "_with_qualifier"]
+    assert sites, "found no _with_qualifier call sites (a scan of nothing is not a pass)"
+    for n in sites:
+        names = {k.arg for k in n.keywords}
+        assert None not in names, f"line {n.lineno}: a **kwargs splat can carry override fields"
+        assert names <= INVOKE_KEYS_ALLOWED - {"qualifier"}, f"line {n.lineno}: {sorted(names - INVOKE_KEYS_ALLOWED)}"
+
+
 @test
 def deploy_paths_ship_the_spec():
     sh = (WT / "deploy/deploy.sh").read_text()
     stack = (WT / "cdk/stack.py").read_text()
     assert re.search(r'cp [^\n]*src/run_qa_spec\.json[^\n]*"\$BUILD/"', sh), "deploy.sh does not copy run_qa_spec.json"
-    assert "run_qa_spec.json /asset-output/" in stack, "cdk/stack.py bundling does not copy run_qa_spec.json"
+    assert re.search(r'cp [^"\n]*\brun_qa_spec\.json\b[^"\n]*/asset-output/', stack), \
+        "cdk/stack.py bundling does not copy run_qa_spec.json"
 
 
 w = max(len(n) for n, _, _ in results)

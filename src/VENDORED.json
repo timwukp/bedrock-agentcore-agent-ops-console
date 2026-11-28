@@ -1,0 +1,19 @@
+{
+  "source": "timwukp/Claude-code-on-AWS-Bedrock-Token-monitoring-alarm-system ci-agent/",
+  "ref": "0eca8fc36e3fc7f45bc991c0deb7e3f8201d7ccc",
+  "files": {
+    "harness_lock.py": {
+      "upstreamPath": "ci-agent/harness_lock.py",
+      "sha256": "a3196f3e02794ea72d6d8e3b8f3cfe58c9176aae167a66f7b4cbf432a8388fc6"
+    },
+    "harness_lock_spec.json": {
+      "upstreamPath": "ci-agent/harness_lock_spec.json",
+      "sha256": "853505934a76348779deed3ac0152dbc8ab7858645a3c3ffa81d58ae7e4ff007"
+    },
+    "qa_reset_broker_spec.json": {
+      "upstreamPath": "ci-agent/qa_reset_broker_spec.json",
+      "sha256": "79f431dedc37859e36a91ee7269c6dbd3699df2e82d2768a87f0864fa4765ee2"
+    }
+  },
+  "refNote": "token-monitoring main after PR #134 (feature-53 part 1) merged, 2026-11-28T12:24:16Z"
+}

@@ -118,7 +118,7 @@ class AdminDashboardStack(cdk.Stack):
                         "pip install boto3==1.43.120 -t /asset-output && "
                         f"sed 's|__UI_HARNESS__|{ui_harness}|g; s|__SKILL_REPO_URL__|{cfg('skillRepoUrl')}|g' "
                         "lambda_function.py > /asset-output/lambda_function.py && "
-                        "cp run_qa_spec.json /asset-output/",  # read by lambda_function.py at import
+                        "cp run_qa_spec.json harness_lock.py harness_lock_spec.json qa_reset_broker_spec.json /asset-output/",  # read by lambda_function.py at import
                     ],
                 ),
             ),
@@ -153,6 +153,7 @@ class AdminDashboardStack(cdk.Stack):
                             .replace("BUGFIX_HARNESS_NAME", (cfg("bugfixHarness") or "none-x").rsplit("-", 1)[0])
                             .replace("BUGFIX_HARNESS_ID", cfg("bugfixHarness") or "none")
                             .replace("QA_BUCKET", cfg("qaBucket") or "none")
+                            .replace("QA_BROKER_FUNCTION", cfg("qaBrokerFunction") or "qa-login-reset")
                             .replace("ACCOUNT_ID", self.account).replace("REGION", self.region)
                            for r in resources],
             ))
