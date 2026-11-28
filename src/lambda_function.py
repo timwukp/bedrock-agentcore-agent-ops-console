@@ -41,6 +41,10 @@ ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
 RUNS_TABLE = os.environ.get("RUNS_TABLE", "")
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 SECRET_ID = os.environ.get("LOGIN_SECRET_ID", "")  # Secrets Manager secret with test-site login creds
+# Run QA's kill switch and harness qualifier live in run_qa_spec.json, shipped next to this file by deploy.sh and
+# the CDK bundling. Read once per container; the env values they name are read per call.
+with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "run_qa_spec.json"), encoding="utf-8") as _f:
+    RUN_QA_SPEC = json.load(_f)
 # Run QA drives a browser that signs in to a SHARED dev app, so LOGIN_SECRET_ID must hold a
 # NON-admin login (the app's API refuses its admin writes). Concurrent sessions on one harness
 # collide (one is cut off mid-run, another streams nothing), so the default is one session.
@@ -421,6 +425,25 @@ CLICK_IN_SCRIPT = re.compile(r"\.click\s*\(|dispatchEvent\s*\(", re.I)
 _READONLY_ORDER = ("violated", "unobserved", "ok")
 
 
+class _RunQaDisabled(Exception):
+    """Raised inside the async worker when Run QA was switched off after the batch started."""
+
+
+def _run_qa_enabled() -> bool:
+    raw = os.environ.get(RUN_QA_SPEC["enable"]["env"])
+    if raw is None:
+        return bool(RUN_QA_SPEC["enable"]["default"])
+    return raw.strip().lower() not in RUN_QA_SPEC["enable"]["falseValues"]
+
+
+def _with_qualifier(**kw):
+    """invoke_harness kwargs plus the harness endpoint qualifier, when one is configured (dormant otherwise)."""
+    q = os.environ.get(RUN_QA_SPEC["qualifier"]["env"]) or RUN_QA_SPEC["qualifier"]["default"]
+    if q:
+        kw["qualifier"] = q
+    return kw
+
+
 def _origin(url) -> str:
     p = urllib.parse.urlsplit(str(url or ""))
     if p.scheme.lower() not in ("http", "https") or not p.netloc:
@@ -543,14 +566,18 @@ def run_one_session(batch_id, i, url):
     t0 = datetime.now(timezone.utc).isoformat()
     calls = []
     try:
+        if not _run_qa_enabled():  # switched off after the batch started, or the event was sent directly
+            raise _RunQaDisabled()
         if not qa_url_allowed(url):  # the async event can be sent by anyone allowed to invoke us
             raise ValueError("url not allowed")
-        resp = data.invoke_harness(
+        resp = data.invoke_harness(**_with_qualifier(
             harnessArn=UI_HARNESS_ARN, runtimeSessionId=sid, actorId="admin-panel",
             messages=[{"role": "user", "content": [{"text":
                 f"Smoke test {url}: log in (creds from Secrets Manager {SECRET_ID}), visit each "
-                f"page once, report one-line PASS/FAIL per page. Session #{i}.\n\n{SAFETY_RULES}"}]}])
+                f"page once, report one-line PASS/FAIL per page. Session #{i}.\n\n{SAFETY_RULES}"}]}]))
         _collect_tool_calls(resp["stream"], calls)
+    except _RunQaDisabled:
+        status = RUN_QA_SPEC["disabled"]["workerStatus"]
     except Exception as e:
         status = "error: " + _scrub(e)[:120]
         print(f"qa session {sid} failed: {e!r}")  # full detail stays in CloudWatch
@@ -1370,6 +1397,8 @@ def handler(event, context):
         if method == "POST" and path == "/api/qa-run":
             if not _authed(headers):
                 return _resp(401, {"error": "unauthorized"})
+            if not _run_qa_enabled():
+                return _resp(RUN_QA_SPEC["disabled"]["status"], {"error": RUN_QA_SPEC["disabled"]["error"]})
             now = datetime.now(timezone.utc).isoformat()
             out = start_qa_fanout(body.get("concurrency", 1), body.get("url", TARGET_URL), now)
             return _resp(400 if "error" in out else 200, out)

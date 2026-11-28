@@ -114,6 +114,7 @@ BUILD=$(mktemp -d)
 pip3 install -q "boto3==${BOTO3_VERSION:-1.43.120}" -t "$BUILD"
 sed "s|__UI_HARNESS__|$UI_HARNESS|g; s|__SKILL_REPO_URL__|$SKILL_REPO_URL|g" \
   "$(dirname "$0")/../src/lambda_function.py" > "$BUILD/lambda_function.py"
+cp "$(dirname "$0")/../src/run_qa_spec.json" "$BUILD/"  # read by lambda_function.py at import
 (cd "$BUILD" && zip -rq /tmp/admin-dashboard.zip .)
 
 ENV_VARS="Variables={REGION=$REGION,UI_HARNESS=$UI_HARNESS,BUGFIX_HARNESS=$BUGFIX_HARNESS,TARGET_REPO=$TARGET_REPO,TARGET_URL=$TARGET_URL,QA_BUCKET=$QA_BUCKET,LOGIN_SECRET_ID=$LOGIN_SECRET_ID,QA_MAX_CONCURRENCY=$QA_MAX_CONCURRENCY,QA_URL_ALLOWLIST=$QA_URL_ALLOWLIST,RUNS_TABLE=$TABLE,COGNITO_POOL_ID=$POOL_ID,COGNITO_CLIENT_ID=$CLIENT_ID,SPANS_SINCE=$SPANS_SINCE}"

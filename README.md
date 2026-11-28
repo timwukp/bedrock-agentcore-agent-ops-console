@@ -40,6 +40,16 @@ it like the CI loop's QA pass:
 - The URL must match `QA_URL_ALLOWLIST` (default: the origin of `TARGET_URL`). The agent types the
   test login into whatever page it is sent to.
 
+## Tests
+
+Offline, with every AWS and GitHub client replaced by a fake; CI runs them on each pull request
+(`.github/workflows/tests.yml`):
+
+```bash
+pip install boto3==1.43.120
+python3 tests/test_b1_b3.py && python3 tests/test_hardening.py && python3 tests/test_run_qa_switch.py
+```
+
 ## Architecture
 
 ![Architecture](docs/architecture.svg)
@@ -123,6 +133,8 @@ Security defaults are overridable — they match `cdk/stack.py` and are document
 | `COGNITO_TIER` | `PLUS` | Enables threat protection (blocks sign-ins with breached credentials). A **paid** feature plan — set `ESSENTIALS` to opt out. |
 | `PASSWORD_MIN_LENGTH` | `20` | Applied to newly created pools only. |
 | `API_RATE_LIMIT` / `API_BURST_LIMIT` | `20` / `40` | Throttles the API stage, capping credential-grinding on `POST /api/login`. Re-applied on every run. |
+| `QA_RUN_ENABLED` | `true` | Kill switch for **Run QA**. `false` (or `0`/`no`/`off`) refuses it with 409 before any batch or harness call; batches already queued stop at their worker. Use it until Run QA takes the shared run lease and per-run passwords (see `src/run_qa_spec.json`). |
+| `HARNESS_QUALIFIER` | *(unset)* | Harness endpoint Run QA invokes. Unset = today's behaviour (no qualifier). Setting it also needs `InvokeHarness`/`InvokeAgentRuntime` on the endpoint ARN in `deploy/iam-policy.json`. |
 | `QA_MAX_CONCURRENCY` | `1` | Most Run QA sessions one click starts. Concurrent sessions on one harness collide (one is cut off mid-run, another streams nothing). |
 | `QA_URL_ALLOWLIST` | *(empty)* | Origins Run QA may test, `\|`-separated. Empty means only the origin of `TARGET_URL`. The full origin must match, so another port or a `user@` prefix is refused. |
 | `PIPE_BASE_BRANCH` | `main` | Base for counting auto-fix rounds: commits between it and the run's head SHA (`compare/<base>...<sha>`), so a deleted branch still counts. |
