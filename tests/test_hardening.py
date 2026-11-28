@@ -46,6 +46,10 @@ class FakeCognito:
 
 
 lf.cognito = FakeCognito()
+# run_one_session takes the UI harness lease and rotates through the broker (run_qa_spec.json): fake both
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from fakes import FakeBroker, FakeS3Lease  # noqa: E402
+lf.lock_s3, lf.broker_lambda = FakeS3Lease(), FakeBroker()
 
 
 class FakeLam:
@@ -164,6 +168,7 @@ def worker_refuses_a_foreign_url_without_invoking():
 def run_session(calls, cut_after=None):
     lf.runs_tbl = FakeTable([{"id": "b1", "concurrency": 1, "status": "running", "sessions": []}])
     lf.data = FakeData(calls, cut_after)
+    lf.lock_s3, lf.broker_lambda = FakeS3Lease(), FakeBroker()
     lf.run_one_session("b1", 0, TARGET + "/projects")
     return lf.runs_tbl.items["b1"]
 
@@ -316,9 +321,11 @@ def rendered_policy_is_scoped():
             assert "*" not in res, f"{a} still on *"
     inv = [r for a, r in rows if a == "bedrock-agentcore:InvokeAgentRuntime"]
     assert inv == [["arn:aws:bedrock-agentcore:us-east-1:123456789012:harness/UITestAgentHarness-CCCCCCCCCC"]], inv
-    s3r = {x for a, r in rows if a.startswith("s3:") for x in r}
+    s3r = {x for a, r in rows if a in ("s3:GetObject", "s3:ListBucket") for x in r}
     assert s3r == {"arn:aws:s3:::token-monitor-qa-reports-123456789012",
                    "arn:aws:s3:::token-monitor-qa-reports-123456789012/*"}, s3r
+    s3w = {x for a, r in rows if a in ("s3:PutObject", "s3:DeleteObject") for x in r}
+    assert s3w == {"arn:aws:s3:::token-monitor-qa-reports-123456789012/locks/ui-harness.json"}, s3w
     bf = [r for a, r in rows if a == "bedrock-agentcore:UpdateHarness"][0]
     assert bf[1].endswith("harness/none"), "unset BUGFIX_HARNESS must render a match-nothing ARN"
     upd = [r for a, r in rows if a == "bedrock-agentcore:UpdateAgentRuntime"][0]

@@ -76,6 +76,10 @@ class FakeCognito:
 
 
 lf.cognito = FakeCognito()
+# run_one_session takes the UI harness lease and rotates through the broker (run_qa_spec.json): fake both
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from fakes import FakeBroker, FakeS3Lease  # noqa: E402
+lf.lock_s3, lf.broker_lambda = FakeS3Lease(), FakeBroker()
 
 
 def call(method, path, qs=None, headers=None, body=None):

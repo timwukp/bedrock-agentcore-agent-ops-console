@@ -47,8 +47,12 @@ Offline, with every AWS and GitHub client replaced by a fake; CI runs them on ea
 
 ```bash
 pip install boto3==1.43.120
-python3 tests/test_b1_b3.py && python3 tests/test_hardening.py && python3 tests/test_run_qa_switch.py
+python3 tests/test_b1_b3.py && python3 tests/test_hardening.py && python3 tests/test_run_qa_switch.py && python3 tests/test_run_qa_lease.py
 ```
+
+`src/harness_lock.py` and two specs are vendored from the token-monitoring repo and pinned by hash in
+`src/VENDORED.json`. The tests fail if they are edited here. Before merging a change that re-vendors them, run
+`python3 scripts/check_vendored.py <ref>`.
 
 ## Architecture
 
@@ -134,6 +138,8 @@ Security defaults are overridable — they match `cdk/stack.py` and are document
 | `PASSWORD_MIN_LENGTH` | `20` | Applied to newly created pools only. |
 | `API_RATE_LIMIT` / `API_BURST_LIMIT` | `20` / `40` | Throttles the API stage, capping credential-grinding on `POST /api/login`. Re-applied on every run. |
 | `QA_RUN_ENABLED` | `true` | Kill switch for **Run QA**. `false` (or `0`/`no`/`off`) refuses it with 409 before any batch or harness call; batches already queued stop at their worker. Use it until Run QA takes the shared run lease and per-run passwords (see `src/run_qa_spec.json`). |
+| `QA_ROTATION` | `broker` | `broker`: Run QA takes the shared UI harness lease (the same one CI takes) and asks the reset broker for a fresh password before the harness call and again afterwards, so the password the model typed is dead when the run ends. `manual`: take the lease, don't rotate. If the broker can't be reached, Run QA makes no harness call. |
+| `QA_BROKER_FUNCTION` / `QA_BROKER_SECRET` | `qa-login-reset` / `viewer` | The broker Lambda (token-monitoring feature-53) and the login it rotates. `deploy/iam-policy.json` grants `lambda:InvokeFunction` on that function only, and `s3:PutObject`/`DeleteObject` on the lock key `locks/ui-harness.json` only. |
 | `HARNESS_QUALIFIER` | *(unset)* | Harness endpoint Run QA invokes. Unset = today's behaviour (no qualifier). Setting it also needs `InvokeHarness`/`InvokeAgentRuntime` on the endpoint ARN in `deploy/iam-policy.json`. |
 | `QA_MAX_CONCURRENCY` | `1` | Most Run QA sessions one click starts. Concurrent sessions on one harness collide (one is cut off mid-run, another streams nothing). |
 | `QA_URL_ALLOWLIST` | *(empty)* | Origins Run QA may test, `\|`-separated. Empty means only the origin of `TARGET_URL`. The full origin must match, so another port or a `user@` prefix is refused. |

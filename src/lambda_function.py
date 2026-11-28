@@ -21,6 +21,8 @@ import json
 import os
 import re
 import secrets
+import sys
+import time
 import urllib.parse
 import urllib.request
 import urllib.error
@@ -28,6 +30,10 @@ from collections import Counter
 from datetime import datetime, timezone
 
 import boto3
+
+# Vendored modules (harness_lock.py and its spec) ship next to this file; see VENDORED.json.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from harness_lock import HarnessLock, LockBusy  # noqa: E402
 
 REGION = os.environ.get("AWS_REGION", "us-east-1")
 ACCOUNT_ID = os.environ.get("ACCOUNT_ID") or boto3.client("sts", region_name=REGION).get_caller_identity()["Account"]
@@ -75,6 +81,9 @@ ctl = boto3.client("bedrock-agentcore-control", region_name=REGION)
 data = boto3.client("bedrock-agentcore", region_name=REGION)
 s3 = boto3.client("s3", region_name=REGION)
 lam = boto3.client("lambda", region_name=REGION)
+lock_s3 = s3          # the UI harness lease lives in QA_BUCKET (harness_lock_spec.json key)
+broker_lambda = lam   # the QA login reset broker (qa_reset_broker_spec.json)
+LEASE_CLOCK = time.time
 cognito = boto3.client("cognito-idp", region_name=REGION)
 _INTRO_CACHE = None  # warm-container cache for intro/player.html (S3 fetch once per container)
 _ddb = boto3.resource("dynamodb", region_name=REGION)
@@ -429,6 +438,42 @@ class _RunQaDisabled(Exception):
     """Raised inside the async worker when Run QA was switched off after the batch started."""
 
 
+class _LeaseBusy(Exception):
+    """Another run holds the shared UI harness lease."""
+
+
+class _LeaseLost(Exception):
+    """The lease ran out before the harness call."""
+
+
+def _rotation_mode() -> str:
+    rot = RUN_QA_SPEC["rotation"]
+    v = (os.environ.get(rot["env"]) or rot["default"]).strip().lower()
+    return v if v in rot["values"] else rot["default"]
+
+
+def _err_code(e) -> str:
+    r = getattr(e, "response", None) or {}
+    return str((r.get("Error") or {}).get("Code") or type(e).__name__)
+
+
+def _broker_rotate(run_id: str, sign_out: bool) -> str:
+    """Ask the reset broker to rotate the Run QA login. 'ok', or 'failed: <reason>'. The reply never holds the
+    password (qa_reset_broker_spec.json), so the result is safe to record."""
+    rot = RUN_QA_SPEC["rotation"]
+    req = {"action": "rotate", "secret": os.environ.get(rot["secretEnv"]) or rot["secretDefault"],
+           "runId": run_id, "signOut": bool(sign_out)}
+    fn = os.environ.get(rot["brokerFunctionEnv"]) or rot["brokerFunctionDefault"]
+    try:
+        out = broker_lambda.invoke(FunctionName=fn, InvocationType="RequestResponse", Payload=json.dumps(req))
+        reply = json.loads(out["Payload"].read())
+    except Exception as e:  # noqa: BLE001
+        return f"failed: broker unreachable ({_err_code(e)})"
+    if out.get("FunctionError") or not isinstance(reply, dict) or "ok" not in reply:
+        return "failed: broker gave no reply"
+    return "ok" if reply["ok"] else f"failed: {reply.get('error')}"
+
+
 def _run_qa_enabled() -> bool:
     raw = os.environ.get(RUN_QA_SPEC["enable"]["env"])
     if raw is None:
@@ -565,11 +610,30 @@ def run_one_session(batch_id, i, url):
     status = "done"
     t0 = datetime.now(timezone.utc).isoformat()
     calls = []
+    lease_cfg, rot = RUN_QA_SPEC["lease"], RUN_QA_SPEC["rotation"]
+    lock, lease_state, note = None, "none", ""
+    rotation = {"before": "skipped", "after": "skipped"}
+    broker = _rotation_mode() == "broker"
     try:
         if not _run_qa_enabled():  # switched off after the batch started, or the event was sent directly
             raise _RunQaDisabled()
         if not qa_url_allowed(url):  # the async event can be sent by anyone allowed to invoke us
             raise ValueError("url not allowed")
+        # One signed-in run at a time, shared with CI (harness_lock_spec.json): take the lease first, never wait.
+        lock = HarnessLock(lock_s3, QA_BUCKET, lease_cfg["owner"].format(batchId=batch_id), sid, clock=LEASE_CLOCK)
+        try:
+            lock.acquire(lease_cfg["waitSeconds"])
+        except LockBusy:
+            lock, lease_state = None, "busy"
+            raise _LeaseBusy()
+        lease_state = "ok"
+        lock.start_heartbeat()
+        if broker:  # a fresh password before the model sees one; no harness call without it
+            rotation["before"] = _broker_rotate(sid, rot["before"]["signOut"])
+            if rotation["before"] != "ok":
+                raise RuntimeError(f"rotation before {rotation['before']}")
+        if lock.is_lost():  # checkBeforeEachStep
+            raise _LeaseLost()
         resp = data.invoke_harness(**_with_qualifier(
             harnessArn=UI_HARNESS_ARN, runtimeSessionId=sid, actorId="admin-panel",
             messages=[{"role": "user", "content": [{"text":
@@ -578,9 +642,26 @@ def run_one_session(batch_id, i, url):
         _collect_tool_calls(resp["stream"], calls)
     except _RunQaDisabled:
         status = RUN_QA_SPEC["disabled"]["workerStatus"]
+    except _LeaseBusy:
+        status = lease_cfg["busyStatus"]
+    except _LeaseLost:
+        status = "error: the harness lease was lost before the harness call"
     except Exception as e:
         status = "error: " + _scrub(e)[:120]
         print(f"qa session {sid} failed: {e!r}")  # full detail stays in CloudWatch
+    finally:
+        if lock is not None:
+            if lock.is_lost():  # another run may hold it now: rotating would break its login
+                lease_state = "lost"
+                if broker and rotation["before"] == "ok":
+                    note = lease_cfg["lostNote"]
+            elif broker and rotation["before"] == "ok":  # the model saw this password: kill it
+                rotation["after"] = _broker_rotate(sid, rot["after"]["signOut"])
+            lock.stop_heartbeat()
+            try:
+                lock.release()
+            except Exception as e:  # noqa: BLE001 — the TTL frees it; record, don't mask the run's status
+                print(f"qa session {sid}: lease release failed: {_err_code(e)}")
     audit = audit_actions(calls)
     if audit["violations"]:
         print(f"qa session {sid}: read-only rules broken: {audit['violations']}")
@@ -593,7 +674,9 @@ def run_one_session(batch_id, i, url):
                 Key={"id": batch_id},
                 UpdateExpression="SET sessions = list_append(if_not_exists(sessions, :e), :s), endedAt = :t",
                 ExpressionAttributeValues={":s": [{"i": i, "session": sid, "status": status,
-                                                   "startedAt": t0, "endedAt": t1, **audit}],
+                                                   "startedAt": t0, "endedAt": t1, **audit,
+                                                   "lease": lease_state, "rotation": rotation,
+                                                   **({"note": note} if note else {})}],
                                            ":e": [], ":t": t1},
                 ReturnValues="ALL_NEW")
             # The last session to finish closes the batch; before this, batches stayed "running".
