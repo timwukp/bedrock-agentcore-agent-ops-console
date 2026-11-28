@@ -32,6 +32,10 @@ class AdminDashboardStack(cdk.Stack):
         ui_harness = cfg("uiHarness")
         if not ui_harness:
             raise ValueError("Set context uiHarness (cdk deploy -c uiHarness=MyHarness-AbC123)")
+        # UpdateHarness passes the harness execution role back to AgentCore (iam:PassRole on it).
+        ui_role_arn = cfg("uiHarnessRoleArn")
+        if not ui_role_arn:
+            raise ValueError("Set context uiHarnessRoleArn: the UI harness's executionRoleArn (get-harness)")
 
         # ── DynamoDB: fan-out batches + drafted recommendations ──────────────
         table = dynamodb.Table(
@@ -123,7 +127,9 @@ class AdminDashboardStack(cdk.Stack):
                 "TARGET_REPO": cfg("targetRepo"),
                 "TARGET_URL": cfg("targetUrl"),
                 "QA_BUCKET": cfg("qaBucket"),
-                "LOGIN_SECRET_ID": cfg("loginSecretId"),
+                "LOGIN_SECRET_ID": cfg("loginSecretId"),  # a NON-admin test-site login
+                "QA_MAX_CONCURRENCY": cfg("qaMaxConcurrency", "1"),
+                "QA_URL_ALLOWLIST": cfg("qaUrlAllowlist"),
                 "RUNS_TABLE": table.table_name,
                 "COGNITO_POOL_ID": pool.user_pool_id,
                 "COGNITO_CLIENT_ID": client.user_pool_client_id,
@@ -138,11 +144,20 @@ class AdminDashboardStack(cdk.Stack):
             fn.add_to_role_policy(iam.PolicyStatement(
                 sid=stmt.get("Sid"),
                 actions=stmt["Action"] if isinstance(stmt["Action"], list) else [stmt["Action"]],
-                resources=[r.replace("ACCOUNT_ID", self.account).replace("REGION", self.region)
+                conditions=stmt.get("Condition"),
+                resources=[r.replace("UI_HARNESS_ROLE_ARN", ui_role_arn)
+                            .replace("BUGFIX_HARNESS_ROLE_ARN", cfg("bugfixHarnessRoleArn") or ui_role_arn)
+                            .replace("UI_HARNESS_NAME", ui_harness.rsplit("-", 1)[0])
+                            .replace("UI_HARNESS_ID", ui_harness)
+                            .replace("BUGFIX_HARNESS_NAME", (cfg("bugfixHarness") or "none-x").rsplit("-", 1)[0])
+                            .replace("BUGFIX_HARNESS_ID", cfg("bugfixHarness") or "none")
+                            .replace("QA_BUCKET", cfg("qaBucket") or "none")
+                            .replace("ACCOUNT_ID", self.account).replace("REGION", self.region)
                            for r in resources],
             ))
         table.grant_read_write_data(fn)
-        login_secret.grant_read(fn)
+        # No grant on login_secret: the Lambda signs the admin in through Cognito with the password
+        # the admin types; it never reads the secret that stores it.
 
         # Permission Boundary (Security pillar SEC05 — reduce blast radius): acts as a hard
         # ceiling so the Lambda execution role can never modify resources outside this system,

@@ -45,8 +45,20 @@ from writes:
   hostile input.
 - **What is out of scope:** the AWS credentials and IAM role you deploy with, the harnesses and
   runtimes themselves, and the site your QA agent tests. Review
-  [`deploy/iam-policy.json`](deploy/iam-policy.json) before deploying — the Lambda role can call
-  AgentCore control/data planes, read CloudWatch and S3, and invoke Bedrock.
+  [`deploy/iam-policy.json`](deploy/iam-policy.json) before deploying.
+  - **Scoped to this deployment:** harness reads and writes are limited to `UI_HARNESS` and
+    `BUGFIX_HARNESS`, and S3 access to `QA_BUCKET`. `InvokeHarness` is limited to the UI harness.
+  - **What AgentCore checks besides the named action:** verified by live AccessDenied errors.
+    - `InvokeHarness` also needs `InvokeAgentRuntime` on the **harness** ARN.
+    - `UpdateHarness` also needs `UpdateAgentRuntime` on the harness's managed runtime
+      (`runtime/harness_<name>-*`), plus `iam:PassRole` on the harness execution role. The policy
+      grants `PassRole` only on the two harnesses' roles, and only when passed to
+      `bedrock-agentcore.amazonaws.com`. Before this change none of the three was granted, so Save
+      skill, Save limits and Apply prompt all failed.
+  - **Not granted:** Secrets Manager, and `InvokeAgentRuntimeCommand`, which runs commands as a
+    runtime's role.
+  - **Still on `*`:** list, metrics and cost calls, which have no resource-level scope. Bedrock
+    `InvokeModel` (the optimization judge) and the forward-access log grants are unchanged.
 
 ## Controls in this codebase
 
@@ -115,9 +127,20 @@ Documented rather than hidden, so you can judge them for your own environment:
   the dashboard never writes to GitHub. Without it GitHub allows 60 requests/hour per source IP,
   and Lambda execution environments share egress IPs, so GitHub-backed panels can come up empty;
   each failure is logged as `github GET <path> -> HTTP <code>` with the remaining rate limit.
+- **Run QA** (`POST /api/qa-run`) signs in to the site under test as `LOGIN_SECRET_ID`, which
+  should be a non-admin login. The controls:
+  - The prompt carries the CI loop's `SAFETY_RULES`.
+  - Each session's browser actions are audited from the harness stream and recorded on the batch
+    as `readonly` with action counts. Typed text and scripts are never copied out.
+  - The target URL must match `QA_URL_ALLOWLIST` or `TARGET_URL`'s origin. The async worker checks
+    it again, because anyone allowed to invoke the Lambda can send that event.
+  - One session runs by default.
+
+  The audit is a tripwire, not a proof. The rules live in the prompt, and only the app's own
+  server-side checks stop a write.
 - Presigned S3 URLs are read-only `get_object` URLs scoped to a single key in `QA_BUCKET`. QA
   screenshot URLs are issued only to signed-in callers and expire after `SCREENSHOT_URL_TTL_S`
   (default 600 s); intro-audio URLs expire in 1 hour.
 - The `/intro/audio/` route validates its path against `audio/[a-z]{2,3}/[a-z0-9-]+\.mp3` before
-  presigning. The QA report `?prefix=` parameter is validated against `run-latest` / `pr-<n>`;
+  presigning. The QA report `?prefix=` parameter is validated against `run-latest` / `pr-manual` / `pr-<n>`;
   anything else returns 400.
