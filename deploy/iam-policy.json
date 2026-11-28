@@ -4,22 +4,69 @@
     {
       "Sid": "Logs",
       "Effect": "Allow",
-      "Action": ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"],
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
       "Resource": "arn:aws:logs:REGION:ACCOUNT_ID:*"
     },
     {
-      "Sid": "AgentCoreControl",
+      "Sid": "AgentCoreList",
       "Effect": "Allow",
       "Action": [
         "bedrock-agentcore:ListHarnesses",
-        "bedrock-agentcore:GetHarness",
-        "bedrock-agentcore:UpdateHarness",
-        "bedrock-agentcore:ListAgentRuntimes",
-        "bedrock-agentcore:InvokeHarness",
-        "bedrock-agentcore:InvokeAgentRuntime",
-        "bedrock-agentcore:InvokeAgentRuntimeCommand"
+        "bedrock-agentcore:ListAgentRuntimes"
       ],
       "Resource": "*"
+    },
+    {
+      "Sid": "WatchedHarnesses",
+      "Effect": "Allow",
+      "Action": [
+        "bedrock-agentcore:GetHarness",
+        "bedrock-agentcore:UpdateHarness"
+      ],
+      "Resource": [
+        "arn:aws:bedrock-agentcore:REGION:ACCOUNT_ID:harness/UI_HARNESS_ID",
+        "arn:aws:bedrock-agentcore:REGION:ACCOUNT_ID:harness/BUGFIX_HARNESS_ID"
+      ]
+    },
+    {
+      "Sid": "RunQaInvoke",
+      "Effect": "Allow",
+      "Action": [
+        "bedrock-agentcore:InvokeHarness",
+        "bedrock-agentcore:InvokeAgentRuntime"
+      ],
+      "Resource": "arn:aws:bedrock-agentcore:REGION:ACCOUNT_ID:harness/UI_HARNESS_ID"
+    },
+    {
+      "Sid": "WatchedHarnessRuntimesUpdate",
+      "Effect": "Allow",
+      "Action": [
+        "bedrock-agentcore:UpdateAgentRuntime"
+      ],
+      "Resource": [
+        "arn:aws:bedrock-agentcore:REGION:ACCOUNT_ID:runtime/harness_UI_HARNESS_NAME-*",
+        "arn:aws:bedrock-agentcore:REGION:ACCOUNT_ID:runtime/harness_BUGFIX_HARNESS_NAME-*"
+      ]
+    },
+    {
+      "Sid": "PassHarnessExecutionRoles",
+      "Effect": "Allow",
+      "Action": [
+        "iam:PassRole"
+      ],
+      "Resource": [
+        "UI_HARNESS_ROLE_ARN",
+        "BUGFIX_HARNESS_ROLE_ARN"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": "bedrock-agentcore.amazonaws.com"
+        }
+      }
     },
     {
       "Sid": "EvalRead",
@@ -33,35 +80,20 @@
       "Resource": "*"
     },
     {
-      "Sid": "BatchEval",
-      "Effect": "Allow",
-      "Action": [
-        "bedrock-agentcore:StartBatchEvaluation",
-        "bedrock-agentcore:GetBatchEvaluation",
-        "bedrock-agentcore:ListBatchEvaluations"
-      ],
-      "Resource": "*"
-    },
-    {
-      "Sid": "NativeRecs",
-      "Effect": "Allow",
-      "Action": [
-        "bedrock-agentcore:StartRecommendation",
-        "bedrock-agentcore:GetRecommendation",
-        "bedrock-agentcore:ListRecommendations"
-      ],
-      "Resource": "*"
-    },
-    {
       "Sid": "CWMetricsRead",
       "Effect": "Allow",
-      "Action": ["cloudwatch:GetMetricData", "cloudwatch:ListMetrics"],
+      "Action": [
+        "cloudwatch:GetMetricData",
+        "cloudwatch:ListMetrics"
+      ],
       "Resource": "*"
     },
     {
       "Sid": "CostExplorerRead",
       "Effect": "Allow",
-      "Action": ["ce:GetCostAndUsage"],
+      "Action": [
+        "ce:GetCostAndUsage"
+      ],
       "Resource": "*"
     },
     {
@@ -96,43 +128,58 @@
     {
       "Sid": "Bedrock",
       "Effect": "Allow",
-      "Action": ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
+      "Action": [
+        "bedrock:InvokeModel",
+        "bedrock:InvokeModelWithResponseStream"
+      ],
       "Resource": "*"
     },
     {
       "Sid": "S3Reports",
       "Effect": "Allow",
-      "Action": ["s3:GetObject", "s3:ListBucket"],
-      "Resource": "*"
-    },
-    {
-      "Sid": "Secrets",
-      "Effect": "Allow",
-      "Action": ["secretsmanager:GetSecretValue"],
-      "Resource": "arn:aws:secretsmanager:REGION:ACCOUNT_ID:secret:*"
+      "Action": [
+        "s3:GetObject",
+        "s3:ListBucket"
+      ],
+      "Resource": [
+        "arn:aws:s3:::QA_BUCKET",
+        "arn:aws:s3:::QA_BUCKET/*"
+      ]
     },
     {
       "Sid": "DDB",
       "Effect": "Allow",
-      "Action": ["dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:GetItem", "dynamodb:Scan"],
+      "Action": [
+        "dynamodb:PutItem",
+        "dynamodb:UpdateItem",
+        "dynamodb:GetItem",
+        "dynamodb:Scan"
+      ],
       "Resource": "arn:aws:dynamodb:REGION:ACCOUNT_ID:table/AgentAdminRuns"
     },
     {
       "Sid": "SelfInvoke",
       "Effect": "Allow",
-      "Action": ["lambda:InvokeFunction"],
+      "Action": [
+        "lambda:InvokeFunction"
+      ],
       "Resource": "arn:aws:lambda:REGION:ACCOUNT_ID:function:agent-cicd-admin"
     },
     {
       "Sid": "CognitoAuth",
       "Effect": "Allow",
-      "Action": ["cognito-idp:InitiateAuth", "cognito-idp:GetUser"],
+      "Action": [
+        "cognito-idp:InitiateAuth",
+        "cognito-idp:GetUser"
+      ],
       "Resource": "*"
     },
     {
       "Sid": "STS",
       "Effect": "Allow",
-      "Action": ["sts:GetCallerIdentity"],
+      "Action": [
+        "sts:GetCallerIdentity"
+      ],
       "Resource": "*"
     }
   ]

@@ -12,7 +12,9 @@ BUGFIX_HARNESS="${BUGFIX_HARNESS:-}"          # optional second harness to monit
 TARGET_REPO="${TARGET_REPO:-}"                 # org/repo of the CI workflow (GitHub public API)
 TARGET_URL="${TARGET_URL:-}"                   # site under test
 QA_BUCKET="${QA_BUCKET:-}"                     # S3 bucket with qa reports (pr-<n>/test-report-latest.json)
-LOGIN_SECRET_ID="${LOGIN_SECRET_ID:-}"         # Secrets Manager secret with test-site creds
+LOGIN_SECRET_ID="${LOGIN_SECRET_ID:-}"         # Secrets Manager secret with a NON-admin test-site login
+QA_MAX_CONCURRENCY="${QA_MAX_CONCURRENCY:-1}"  # Run QA sessions per click (concurrent sessions on one harness collide)
+QA_URL_ALLOWLIST="${QA_URL_ALLOWLIST:-}"       # extra origins Run QA may test, "|"-separated; empty = TARGET_URL only
 SKILL_REPO_URL="${SKILL_REPO_URL:-}"           # git repo the harness skill lives in
 SPANS_SINCE="${SPANS_SINCE:-}"                 # ISO ts when OTEL_TRACES_SAMPLER=always_on was enabled
 
@@ -47,7 +49,18 @@ if ! aws iam get-role --role-name "$ROLE" >/dev/null 2>&1; then
     "Version":"2012-10-17","Statement":[{"Effect":"Allow",
     "Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}'
 fi
-sed "s/ACCOUNT_ID/$ACCOUNT_ID/g; s/REGION/$REGION/g" "$(dirname "$0")/iam-policy.json" > /tmp/admin-policy.json
+# UpdateHarness passes each harness's execution role back to AgentCore: read those roles from the
+# harnesses so iam:PassRole names exactly them.
+UI_ROLE_ARN=$(aws bedrock-agentcore-control get-harness --harness-id "$UI_HARNESS" --region "$REGION"   --query harness.executionRoleArn --output text)
+BUGFIX_ROLE_ARN="$UI_ROLE_ARN"
+if [ -n "$BUGFIX_HARNESS" ]; then
+  BUGFIX_ROLE_ARN=$(aws bedrock-agentcore-control get-harness --harness-id "$BUGFIX_HARNESS" --region "$REGION"     --query harness.executionRoleArn --output text)
+fi
+# Placeholders scope the role to the watched harnesses, the UI harness's managed runtime
+# (harness_<name>-*) and the QA bucket. BUGFIX_HARNESS / QA_BUCKET may be unset: "none" keeps
+# the ARN well-formed and matches nothing.
+sed "s|UI_HARNESS_ROLE_ARN|$UI_ROLE_ARN|g; s|BUGFIX_HARNESS_ROLE_ARN|$BUGFIX_ROLE_ARN|g; s/UI_HARNESS_NAME/${UI_HARNESS%-*}/g; s/UI_HARNESS_ID/$UI_HARNESS/g; s/BUGFIX_HARNESS_NAME/${BUGFIX_HARNESS:+${BUGFIX_HARNESS%-*}}/g; s/harness_-\*/harness_none-*/g; s/BUGFIX_HARNESS_ID/${BUGFIX_HARNESS:-none}/g; s/QA_BUCKET/${QA_BUCKET:-none}/g; s/ACCOUNT_ID/$ACCOUNT_ID/g; s/REGION/$REGION/g" \
+  "$(dirname "$0")/iam-policy.json" > /tmp/admin-policy.json
 aws iam put-role-policy --role-name "$ROLE" --policy-name AgentAdminPerms --policy-document file:///tmp/admin-policy.json
 
 # ── Cognito (admin login) ─────────────────────────────────────────────────────
@@ -103,7 +116,7 @@ sed "s|__UI_HARNESS__|$UI_HARNESS|g; s|__SKILL_REPO_URL__|$SKILL_REPO_URL|g" \
   "$(dirname "$0")/../src/lambda_function.py" > "$BUILD/lambda_function.py"
 (cd "$BUILD" && zip -rq /tmp/admin-dashboard.zip .)
 
-ENV_VARS="Variables={REGION=$REGION,UI_HARNESS=$UI_HARNESS,BUGFIX_HARNESS=$BUGFIX_HARNESS,TARGET_REPO=$TARGET_REPO,TARGET_URL=$TARGET_URL,QA_BUCKET=$QA_BUCKET,LOGIN_SECRET_ID=$LOGIN_SECRET_ID,RUNS_TABLE=$TABLE,COGNITO_POOL_ID=$POOL_ID,COGNITO_CLIENT_ID=$CLIENT_ID,SPANS_SINCE=$SPANS_SINCE}"
+ENV_VARS="Variables={REGION=$REGION,UI_HARNESS=$UI_HARNESS,BUGFIX_HARNESS=$BUGFIX_HARNESS,TARGET_REPO=$TARGET_REPO,TARGET_URL=$TARGET_URL,QA_BUCKET=$QA_BUCKET,LOGIN_SECRET_ID=$LOGIN_SECRET_ID,QA_MAX_CONCURRENCY=$QA_MAX_CONCURRENCY,QA_URL_ALLOWLIST=$QA_URL_ALLOWLIST,RUNS_TABLE=$TABLE,COGNITO_POOL_ID=$POOL_ID,COGNITO_CLIENT_ID=$CLIENT_ID,SPANS_SINCE=$SPANS_SINCE}"
 
 if aws lambda get-function --function-name "$FN" --region "$REGION" >/dev/null 2>&1; then
   aws lambda update-function-code --function-name "$FN" --zip-file fileb:///tmp/admin-dashboard.zip --region "$REGION" >/dev/null

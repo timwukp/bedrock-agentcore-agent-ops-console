@@ -13,7 +13,7 @@ but the dashboard works with any AgentCore harness/runtime setup.
 
 | Tab | What it shows | Backed by |
 |---|---|---|
-| **Pipeline** | Harness/runtime status, GitHub Actions runs & PRs, latest QA findings with severity + evidence, QA screenshots, concurrent QA fan-out (1–10 parallel sessions) | AgentCore control plane, GitHub API, S3 |
+| **Pipeline** | Harness/runtime status, GitHub Actions runs & PRs, latest QA findings with severity + evidence, QA screenshots, **Run QA** smoke sessions (one per click by default, `QA_MAX_CONCURRENCY`) against an allow-listed URL, each checked against read-only rules | AgentCore control plane, GitHub API, S3 |
 | **Observability** | Per-harness invocations / sessions / latency / error-rate stat tiles, 7-day daily-invocations column chart, token usage | `AWS/Bedrock-AgentCore` CloudWatch metrics + EMF `gen_ai.client.token.usage` |
 | **Cost** | Month-to-date **billed** cost split into AgentCore platform / Bedrock inference / CloudWatch observability, 30-day daily-cost chart, near-real-time **estimated** per-harness runtime cost, per-fan-out-run cost attribution, optional per-cost-allocation-tag breakdown | Cost Explorer `GetCostAndUsage` + vended `CPUUsed-vCPUHours` / `MemoryUsed-GBHours` CloudWatch metrics — see [Cost telemetry](#cost-telemetry--where-the-numbers-come-from) |
 | **Evaluations** | Online evaluation score gauges (Builtin.Correctness / GoalSuccessRate / ToolSelectionAccuracy) over the last `EVAL_WINDOW_DAYS` (default 90), aggregated server-side with CloudWatch Logs Insights and cached `EVAL_CACHE_TTL_S` (600 s), one-click **batch evaluation** of recent QA sessions (offline scoring in minutes) | AgentCore Evaluations (online configs + data-plane `StartBatchEvaluation`) |
@@ -21,10 +21,24 @@ but the dashboard works with any AgentCore harness/runtime setup.
 
 > **Currently disabled:** batch evaluation, AWS-native recommendations and on-demand insights
 > reports are placeholder stubs in `src/lambda_function.py` (their buttons report "not available").
-> The pinned boto3 exposes the underlying APIs, so restoring them is a follow-up.
+> The pinned boto3 exposes the underlying APIs, so restoring them is a follow-up. Their IAM grants
+> (`BatchEval`, `NativeRecs` in `deploy/iam-policy.json`) were removed with the stubs; add them back
+> when you restore the features.
 
 Write actions (fan-out, apply, generate) are protected by **Cognito login** (8-hour access tokens,
 server-side validation via `cognito-idp:GetUser`). Read-only views need no sign-in.
+
+**Run QA** drives a browser that signs in to the site under test with `LOGIN_SECRET_ID`, so treat
+it like the CI loop's QA pass:
+- Point `LOGIN_SECRET_ID` at a **non-admin** login. A shared dev app should refuse that account's
+  admin writes on the server.
+- The prompt carries the same `SAFETY_RULES` as `ci-agent/qa_agent.py` in the CI repo: no
+  Save/Delete-type clicks, no setting changes, no POST/PUT/PATCH/DELETE.
+- Every browser action in the stream is checked against those rules. The batch shows
+  `read-only: ok`, `violated` or `unobserved`. The check matches selectors and scripts, so a hit
+  means a rule was broken and a miss proves nothing. Typed text and scripts are never stored.
+- The URL must match `QA_URL_ALLOWLIST` (default: the origin of `TARGET_URL`). The agent types the
+  test login into whatever page it is sent to.
 
 ## Architecture
 
@@ -92,7 +106,7 @@ export BUGFIX_HARNESS=MyBugFixHarness-XyZ789    # optional second harness
 export TARGET_REPO=org/repo                     # CI repo shown in the Pipeline tab
 export TARGET_URL=https://your-app.example.com  # site under test
 export QA_BUCKET=your-qa-reports-bucket         # where QA reports land
-export LOGIN_SECRET_ID=your-app/login-creds     # test-site creds for fan-out sessions
+export LOGIN_SECRET_ID=your-app/login-creds-viewer  # a NON-admin test-site login for Run QA
 export SKILL_REPO_URL=https://github.com/org/skill-repo
 ./deploy/deploy.sh
 ```
@@ -109,6 +123,9 @@ Security defaults are overridable — they match `cdk/stack.py` and are document
 | `COGNITO_TIER` | `PLUS` | Enables threat protection (blocks sign-ins with breached credentials). A **paid** feature plan — set `ESSENTIALS` to opt out. |
 | `PASSWORD_MIN_LENGTH` | `20` | Applied to newly created pools only. |
 | `API_RATE_LIMIT` / `API_BURST_LIMIT` | `20` / `40` | Throttles the API stage, capping credential-grinding on `POST /api/login`. Re-applied on every run. |
+| `QA_MAX_CONCURRENCY` | `1` | Most Run QA sessions one click starts. Concurrent sessions on one harness collide (one is cut off mid-run, another streams nothing). |
+| `QA_URL_ALLOWLIST` | *(empty)* | Origins Run QA may test, `\|`-separated. Empty means only the origin of `TARGET_URL`. The full origin must match, so another port or a `user@` prefix is refused. |
+| `PIPE_BASE_BRANCH` | `main` | Base for counting auto-fix rounds: commits between it and the run's head SHA (`compare/<base>...<sha>`), so a deleted branch still counts. |
 | `BOTO3_VERSION` | `1.43.120` | boto3 vendored into the Lambda package. The runtime's built-in boto3 lacks the git skill type, `harnessVersion` and evaluation insights, which then show blank. |
 
 ## CRITICAL prerequisite: enable trace sampling
