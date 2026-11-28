@@ -38,5 +38,18 @@
     "after": {"signOut": true},
     "why": "broker: rotate the login before the harness call and again in finally, so the password the model typed is dead when the run ends (qa_reset_broker_spec.json is the request format). manual: take the lease but do not rotate; the owner rotates."
   },
+  "guard": {
+    "why": "Read qa_tool_guard's own decisions from the harness stream (the before_tool_call hook; Harness #89). Parity with token-monitoring ci-agent/qa_agent.py audit_guard (feature-55). The consumer rule is the vendored qa_tool_guard_spec.json 'consumers' entry; the hook name and event are read from it.",
+    "spec": "qa_tool_guard_spec.json",
+    "rulePrefix": "^([A-Z]\\d\\d):",
+    "expected": {
+      "env": "QA_GUARD_EXPECTED",
+      "default": false,
+      "trueValues": ["1", "true"],
+      "why": "Off until the hook is live: then a session the guard did not cover is not ok. A guard deny counts in both modes."
+    },
+    "fold": "a guard deny makes the session violated; with the guard expected, the worse of audit_actions' readonly and the guard's; otherwise audit_actions' readonly unchanged",
+    "record": "each session that reached the harness call records 'guard': {readonly, toolCalls, guardDecisions, denies}"
+  },
   "order": ["acquire lease", "rotate before", "check lease", "invoke harness", "rotate after (finally)", "release lease (finally)"]
 }

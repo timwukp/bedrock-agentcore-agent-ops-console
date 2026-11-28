@@ -147,7 +147,12 @@ Documented rather than hidden, so you can judge them for your own environment:
     longer works when the session ends. If the lease was lost mid-run, the second rotation is skipped (it would
     break the new holder's login), and the session records that the password stays valid until the next rotation.
 
-  The audit is a tripwire, not a proof. The rules live in the prompt, and only the app's own
+  - **The tool guard's decisions.** When the harness runs the `qa_tool_guard` `before_tool_call` hook, a denied
+    call is skipped before it runs, and the session records the guard's decisions (`guard`, rule ids and counts
+    only). Any deny makes the session `violated`. `QA_GUARD_EXPECTED=true` also turns a session the guard did
+    not fully cover into `unobserved`. Leave it off until the hook is live, so nothing gets noisier before then.
+
+  The audit is a tripwire, not a proof. The rules live in the prompt and the guard, and only the app's own
   server-side checks stop a write.
 - Presigned S3 URLs are read-only `get_object` URLs scoped to a single key in `QA_BUCKET`. QA
   screenshot URLs are issued only to signed-in callers and expire after `SCREENSHOT_URL_TTL_S`

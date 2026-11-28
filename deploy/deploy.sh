@@ -118,6 +118,7 @@ cp "$(dirname "$0")/../src/run_qa_spec.json" "$BUILD/"
 cp "$(dirname "$0")/../src/harness_lock.py" "$BUILD/"
 cp "$(dirname "$0")/../src/harness_lock_spec.json" "$BUILD/"
 cp "$(dirname "$0")/../src/qa_reset_broker_spec.json" "$BUILD/"  # read by lambda_function.py at import (VENDORED.json pins the vendored ones)
+cp "$(dirname "$0")/../src/qa_tool_guard_spec.json" "$BUILD/"  # read at import: the tool guard's hook name and event (VENDORED.json "guard")
 (cd "$BUILD" && zip -rq /tmp/admin-dashboard.zip .)
 
 ENV_VARS="Variables={REGION=$REGION,UI_HARNESS=$UI_HARNESS,BUGFIX_HARNESS=$BUGFIX_HARNESS,TARGET_REPO=$TARGET_REPO,TARGET_URL=$TARGET_URL,QA_BUCKET=$QA_BUCKET,LOGIN_SECRET_ID=$LOGIN_SECRET_ID,QA_MAX_CONCURRENCY=$QA_MAX_CONCURRENCY,QA_URL_ALLOWLIST=$QA_URL_ALLOWLIST,RUNS_TABLE=$TABLE,COGNITO_POOL_ID=$POOL_ID,COGNITO_CLIENT_ID=$CLIENT_ID,SPANS_SINCE=$SPANS_SINCE}"

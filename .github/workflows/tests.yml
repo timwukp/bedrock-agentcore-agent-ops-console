@@ -25,3 +25,4 @@ jobs:
       - run: python tests/test_hardening.py
       - run: python tests/test_run_qa_switch.py
       - run: python tests/test_run_qa_lease.py
+      - run: python tests/test_run_qa_guard.py
