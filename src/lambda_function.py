@@ -51,6 +51,10 @@ SECRET_ID = os.environ.get("LOGIN_SECRET_ID", "")  # Secrets Manager secret with
 # the CDK bundling. Read once per container; the env values they name are read per call.
 with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "run_qa_spec.json"), encoding="utf-8") as _f:
     RUN_QA_SPEC = json.load(_f)
+# qa_tool_guard's spec, vendored from the Harness repo (VENDORED.json 'guard'): the hook name and event this file
+# reads decisions for. Shipped next to this file like run_qa_spec.json.
+with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), RUN_QA_SPEC["guard"]["spec"]), encoding="utf-8") as _f:
+    QA_TOOL_GUARD_SPEC = json.load(_f)
 # Run QA drives a browser that signs in to a SHARED dev app, so LOGIN_SECRET_ID must hold a
 # NON-admin login (the app's API refuses its admin writes). Concurrent sessions on one harness
 # collide (one is cut off mid-run, another streams nothing), so the default is one session.
@@ -504,12 +508,17 @@ def qa_url_allowed(url) -> bool:
     return bool(o) and o in allowed
 
 
-def _collect_tool_calls(stream, calls):
+def _collect_tool_calls(stream, calls, hook_events=None):
     """Drain the harness stream, appending every tool use to `calls` as {"tool", "input"}
-    (including a block the stream never closed). Exceptions propagate to the caller."""
+    (including a block the stream never closed). With a `hook_events` list, every hookEvent and every tool-use
+    start is appended to it unchanged, for audit_guard; nothing else (no text, no tool input) is kept.
+    Exceptions propagate to the caller; what arrived before stays in both lists."""
     blocks = {}  # contentBlockIndex -> open toolUse block
     try:
         for event in stream:
+            if hook_events is not None and (
+                    "hookEvent" in event or "toolUse" in ((event.get("contentBlockStart") or {}).get("start") or {})):
+                hook_events.append(event)
             if "contentBlockStart" in event:
                 ev = event["contentBlockStart"]
                 tu = (ev.get("start") or {}).get("toolUse")
@@ -575,6 +584,59 @@ def audit_actions(calls):
             "violations": [_scrub(v) for v in violations[:5]], "actions": dict(counts)}
 
 
+# qa_tool_guard's decisions (run_qa_spec.json 'guard'; the rule is the vendored guard spec's 'consumers' entry, and
+# token-monitoring ci-agent/qa_agent.py audit_guard applies the same one). It reads event types, names, decisions
+# and reason prefixes only.
+GUARD_NAME, GUARD_EVENT = QA_TOOL_GUARD_SPEC["name"], QA_TOOL_GUARD_SPEC["event"]
+GUARD_RULE = re.compile(RUN_QA_SPEC["guard"]["rulePrefix"])
+
+
+def audit_guard(events):
+    """{"readonly": ok|violated|unobserved, "toolCalls", "guardDecisions", "denies": {rule: n}} for one session."""
+    tool_calls, decisions, denies = 0, 0, Counter()
+    for ev in events:
+        if not isinstance(ev, dict):
+            continue
+        start = (ev.get("contentBlockStart") or {}).get("start") or {}
+        if isinstance(start, dict) and "toolUse" in start:
+            tool_calls += 1
+        hook = ev.get("hookEvent")
+        if not isinstance(hook, dict) or hook.get("name") != GUARD_NAME or hook.get("type") != GUARD_EVENT:
+            continue
+        if hook.get("decision") not in ("allow", "deny"):
+            continue
+        decisions += 1
+        if hook["decision"] == "deny":
+            m = GUARD_RULE.match(str(hook.get("reason") or ""))
+            denies[m.group(1) if m else "?"] += 1
+    if denies:
+        verdict = "violated"
+    elif tool_calls == 0 or decisions < tool_calls:
+        verdict = "unobserved"
+    else:
+        verdict = "ok"
+    return {"readonly": verdict, "toolCalls": tool_calls, "guardDecisions": decisions,
+            "denies": dict(sorted(denies.items()))}
+
+
+def _guard_expected() -> bool:
+    """True once the guard hook is live (QA_GUARD_EXPECTED): then a session it didn't cover is not `ok`."""
+    exp = RUN_QA_SPEC["guard"]["expected"]
+    raw = os.environ.get(exp["env"])
+    if raw is None:
+        return bool(exp["default"])
+    return raw.strip().lower() in exp["trueValues"]
+
+
+def fold_readonly(audit_readonly, guard, expected):
+    """A guard deny always wins. Its missing coverage counts only when the guard is expected to be there."""
+    if guard and guard.get("readonly") == "violated":
+        return "violated"
+    if guard and expected:
+        return _worst_readonly([{"readonly": audit_readonly}, guard]) or audit_readonly
+    return audit_readonly
+
+
 def _worst_readonly(sessions):
     seen = [x.get("readonly") for x in sessions if x.get("readonly") in _READONLY_ORDER]
     for level in _READONLY_ORDER:
@@ -609,7 +671,7 @@ def run_one_session(batch_id, i, url):
     sid = f"admin-qa-{batch_id}-{i}-{secrets.token_hex(8)}"
     status = "done"
     t0 = datetime.now(timezone.utc).isoformat()
-    calls = []
+    calls, hook_events, invoked = [], [], False
     lease_cfg, rot = RUN_QA_SPEC["lease"], RUN_QA_SPEC["rotation"]
     lock, lease_state, note = None, "none", ""
     rotation = {"before": "skipped", "after": "skipped"}
@@ -639,7 +701,8 @@ def run_one_session(batch_id, i, url):
             messages=[{"role": "user", "content": [{"text":
                 f"Smoke test {url}: log in (creds from Secrets Manager {SECRET_ID}), visit each "
                 f"page once, report one-line PASS/FAIL per page. Session #{i}.\n\n{SAFETY_RULES}"}]}]))
-        _collect_tool_calls(resp["stream"], calls)
+        invoked = True
+        _collect_tool_calls(resp["stream"], calls, hook_events)
     except _RunQaDisabled:
         status = RUN_QA_SPEC["disabled"]["workerStatus"]
     except _LeaseBusy:
@@ -663,6 +726,10 @@ def run_one_session(batch_id, i, url):
             except Exception as e:  # noqa: BLE001 — the TTL frees it; record, don't mask the run's status
                 print(f"qa session {sid}: lease release failed: {_err_code(e)}")
     audit = audit_actions(calls)
+    guard = audit_guard(hook_events) if invoked else None  # None: the session never reached the harness
+    audit["readonly"] = fold_readonly(audit["readonly"], guard, _guard_expected())
+    if guard and guard["denies"]:
+        print(f"qa session {sid}: the tool guard denied {guard['denies']}")
     if audit["violations"]:
         print(f"qa session {sid}: read-only rules broken: {audit['violations']}")
     t1 = datetime.now(timezone.utc).isoformat()
@@ -676,6 +743,7 @@ def run_one_session(batch_id, i, url):
                 ExpressionAttributeValues={":s": [{"i": i, "session": sid, "status": status,
                                                    "startedAt": t0, "endedAt": t1, **audit,
                                                    "lease": lease_state, "rotation": rotation,
+                                                   **({"guard": guard} if guard is not None else {}),
                                                    **({"note": note} if note else {})}],
                                            ":e": [], ":t": t1},
                 ReturnValues="ALL_NEW")

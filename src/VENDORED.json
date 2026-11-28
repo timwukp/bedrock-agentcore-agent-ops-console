@@ -15,5 +15,21 @@
       "sha256": "79f431dedc37859e36a91ee7269c6dbd3699df2e82d2768a87f0864fa4765ee2"
     }
   },
-  "refNote": "token-monitoring main after PR #134 (feature-53 part 1) merged, 2026-11-28T12:24:16Z"
+  "refNote": "token-monitoring main after PR #134 (feature-53 part 1) merged, 2026-11-28T12:24:16Z",
+  "guard": {
+    "source": "timwukp/Harness-agentic-AI-agent-best-practices-and-use-case agentcore/hooks/qa_tool_guard/",
+    "ref": "c839d7c025b4 (main after #91/#92); hashes equal that commit's SHA256SUMS",
+    "files": {
+      "qa_tool_guard_spec.json": {
+        "upstreamPath": "agentcore/hooks/qa_tool_guard/qa_tool_guard_spec.json",
+        "sha256": "c67f8586859077f2501a3d959602c9f6462c8355bf217c9370277abf4c517a3c",
+        "role": "runtime: read by lambda_function.py at import (the guard's hook name and event)"
+      },
+      "qa_tool_guard_stream_cases.json": {
+        "upstreamPath": "agentcore/hooks/qa_tool_guard/qa_tool_guard_stream_cases.json",
+        "sha256": "3211dbb068fb8bb4a7c2617c425fcc4298f27c8219e397acac3ef0c28ffbed7c",
+        "role": "test only: tests/test_run_qa_guard.py replays every stream; not shipped"
+      }
+    }
+  }
 }

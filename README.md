@@ -37,6 +37,9 @@ it like the CI loop's QA pass:
 - Every browser action in the stream is checked against those rules. The batch shows
   `read-only: ok`, `violated` or `unobserved`. The check matches selectors and scripts, so a hit
   means a rule was broken and a miss proves nothing. Typed text and scripts are never stored.
+- When the harness has the `qa_tool_guard` hook (Harness `agentcore/hooks/qa_tool_guard/`), each session also
+  records the guard's own decisions as `guard` (`readonly`, `toolCalls`, `guardDecisions`, `denies` by rule).
+  A guard deny makes the session `violated`. Missing coverage counts only with `QA_GUARD_EXPECTED=true`.
 - The URL must match `QA_URL_ALLOWLIST` (default: the origin of `TARGET_URL`). The agent types the
   test login into whatever page it is sent to.
 
@@ -140,6 +143,7 @@ Security defaults are overridable — they match `cdk/stack.py` and are document
 | `QA_RUN_ENABLED` | `true` | Kill switch for **Run QA**. `false` (or `0`/`no`/`off`) refuses it with 409 before any batch or harness call; batches already queued stop at their worker. Use it until Run QA takes the shared run lease and per-run passwords (see `src/run_qa_spec.json`). |
 | `QA_ROTATION` | `broker` | `broker`: Run QA takes the shared UI harness lease (the same one CI takes) and asks the reset broker for a fresh password before the harness call and again afterwards, so the password the model typed is dead when the run ends. `manual`: take the lease, don't rotate. If the broker can't be reached, Run QA makes no harness call. |
 | `QA_BROKER_FUNCTION` / `QA_BROKER_SECRET` | `qa-login-reset` / `viewer` | The broker Lambda (token-monitoring feature-53) and the login it rotates. `deploy/iam-policy.json` grants `lambda:InvokeFunction` on that function only, and `s3:PutObject`/`DeleteObject` on the lock key `locks/ui-harness.json` only. |
+| `QA_GUARD_EXPECTED` | `false` | Set to `true` once the harness's `qa_tool_guard` hook is live. Then a session with fewer guard decisions than tool calls (or no tool call) is `unobserved`, not `ok`. A guard deny makes a session `violated` either way (`src/run_qa_spec.json` `guard`). |
 | `HARNESS_QUALIFIER` | *(unset)* | Harness endpoint Run QA invokes. Unset = today's behaviour (no qualifier). Setting it also needs `InvokeHarness`/`InvokeAgentRuntime` on the endpoint ARN in `deploy/iam-policy.json`. |
 | `QA_MAX_CONCURRENCY` | `1` | Most Run QA sessions one click starts. Concurrent sessions on one harness collide (one is cut off mid-run, another streams nothing). |
 | `QA_URL_ALLOWLIST` | *(empty)* | Origins Run QA may test, `\|`-separated. Empty means only the origin of `TARGET_URL`. The full origin must match, so another port or a `user@` prefix is refused. |

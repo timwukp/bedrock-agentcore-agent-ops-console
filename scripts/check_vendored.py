@@ -12,10 +12,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 pins = json.loads((ROOT / "src/VENDORED.json").read_text())
-repo = pins["source"].split()[0]
 ref = sys.argv[1] if len(sys.argv) > 1 else "main"
 bad = 0
-for name, meta in pins["files"].items():
+# The lease files (top level) and the tool guard's files (the "guard" block) come from different repos.
+blocks = [pins] + [b for b in pins.values() if isinstance(b, dict) and "source" in b and "files" in b]
+entries = [(b["source"].split()[0], name, meta) for b in blocks for name, meta in b["files"].items()]
+for repo, name, meta in entries:
     url = f"https://api.github.com/repos/{repo}/contents/{meta['upstreamPath']}?ref={ref}"
     req = urllib.request.Request(url, headers={"Accept": "application/vnd.github.raw", "User-Agent": "check-vendored"})
     if os.environ.get("GITHUB_TOKEN"):
@@ -31,5 +33,5 @@ for name, meta in pins["files"].items():
     state = "ok" if up == lo == pin else f"DRIFT upstream={up[:12]} local={lo[:12]} pin={pin[:12]}"
     print(f"{name}: {state}")
     bad += state != "ok"
-print(f"{len(pins['files']) - bad}/{len(pins['files'])} vendored files match {repo}@{ref}")
+print(f"{len(entries) - bad}/{len(entries)} vendored files match their upstream repos @{ref}")
 sys.exit(1 if bad else 0)
