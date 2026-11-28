@@ -1,0 +1,21 @@
+{
+  "spec": "ops-console-run-qa",
+  "version": 1,
+  "purpose": "How the dashboard's Run QA may start a signed-in session. Read by src/lambda_function.py at import and by tests/test_run_qa_switch.py. Shipped next to lambda_function.py by deploy/deploy.sh and cdk/stack.py.",
+  "enable": {
+    "env": "QA_RUN_ENABLED",
+    "default": true,
+    "falseValues": ["0", "false", "no", "off"],
+    "why": "Kill switch. Run QA signs in with a test login that passes through the model. Until it takes the shared run lease and uses per-run passwords (token-monitoring feature-53), the owner can turn it off without a code change."
+  },
+  "disabled": {
+    "status": 409,
+    "error": "Run QA is disabled (QA_RUN_ENABLED=false)",
+    "workerStatus": "error: run qa disabled"
+  },
+  "qualifier": {
+    "env": "HARNESS_QUALIFIER",
+    "default": null,
+    "why": "Harness endpoint to invoke (plan WS3). Dormant: when unset, invoke_harness gets no qualifier, which is today's behaviour."
+  }
+}

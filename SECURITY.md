@@ -138,6 +138,9 @@ Documented rather than hidden, so you can judge them for your own environment:
     it again, because anyone allowed to invoke the Lambda can send that event.
   - One session runs by default.
 
+  - `QA_RUN_ENABLED=false` switches Run QA off without a code change: 409 before any batch, and a queued
+    worker stops before its harness call.
+
   The audit is a tripwire, not a proof. The rules live in the prompt, and only the app's own
   server-side checks stop a write.
 - Presigned S3 URLs are read-only `get_object` URLs scoped to a single key in `QA_BUCKET`. QA

@@ -117,7 +117,8 @@ class AdminDashboardStack(cdk.Stack):
                         "bash", "-c",
                         "pip install boto3==1.43.120 -t /asset-output && "
                         f"sed 's|__UI_HARNESS__|{ui_harness}|g; s|__SKILL_REPO_URL__|{cfg('skillRepoUrl')}|g' "
-                        "lambda_function.py > /asset-output/lambda_function.py",
+                        "lambda_function.py > /asset-output/lambda_function.py && "
+                        "cp run_qa_spec.json /asset-output/",  # read by lambda_function.py at import
                     ],
                 ),
             ),
