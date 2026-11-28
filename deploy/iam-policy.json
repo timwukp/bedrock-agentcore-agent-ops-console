@@ -45,7 +45,8 @@
       "Sid": "WatchedHarnessRuntimesUpdate",
       "Effect": "Allow",
       "Action": [
-        "bedrock-agentcore:UpdateAgentRuntime"
+        "bedrock-agentcore:UpdateAgentRuntime",
+        "bedrock-agentcore:GetAgentRuntime"
       ],
       "Resource": [
         "arn:aws:bedrock-agentcore:REGION:ACCOUNT_ID:runtime/harness_UI_HARNESS_NAME-*",
