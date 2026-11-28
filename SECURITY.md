@@ -50,8 +50,10 @@ from writes:
     `BUGFIX_HARNESS`, and S3 access to `QA_BUCKET`. `InvokeHarness` is limited to the UI harness.
   - **What AgentCore checks besides the named action:** verified by live AccessDenied errors.
     - `InvokeHarness` also needs `InvokeAgentRuntime` on the **harness** ARN.
-    - `UpdateHarness` also needs `UpdateAgentRuntime` on the harness's managed runtime
-      (`runtime/harness_<name>-*`), plus `iam:PassRole` on the harness execution role. The policy
+    - `UpdateHarness` also needs `UpdateAgentRuntime` and `GetAgentRuntime` on the harness's
+      managed runtime (`runtime/harness_<name>-*`), plus `iam:PassRole` on the harness execution
+      role. `GetAgentRuntime` is checked in the asynchronous phase: the API returns 200, and the
+      harness then lands in `UPDATE_FAILED` with the reason in `get-harness` `failureReason`. The policy
       grants `PassRole` only on the two harnesses' roles, and only when passed to
       `bedrock-agentcore.amazonaws.com`. Before this change none of the three was granted, so Save
       skill, Save limits and Apply prompt all failed.
